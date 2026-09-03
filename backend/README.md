@@ -57,6 +57,7 @@ Vercel에서는 프로젝트의 `Settings > Environment Variables`에 `SUPABASE_
 
 - `POST /api/v1/auth/register`, `POST /api/v1/auth/login`
 - `POST /api/v1/twitter/parse` (트위터/X 원문 URL 정규화 및 파싱 어댑터)
+- `POST /api/v1/documents/parse` (`{ image: "data:<mime>;base64,..." }`를 받아 Upstage Document Digitization으로 OCR 후 구조화)
 - `GET /api/v1/search?keyword=&category=&sort_by=popular|price|deadline&page=&limit=`
 - `GET /api/v1/recommendations` (CUSTOMER)
 - `POST /api/v1/seller/products` (SELLER)

@@ -92,7 +92,8 @@
           <form id="document-form" class="workflow-card">
             <h3>문서 AI 처리</h3>
             <label>문서 종류<select name="kind"><option value="receipt">영수증</option><option value="waybill">송장</option></select></label>
-            <label>캡처 텍스트<textarea name="text" rows="4" required placeholder="이미지에서 읽은 영수증 또는 송장 내용을 붙여 넣으세요."></textarea></label>
+            <label>문서 이미지<input name="image" type="file" accept="image/png,image/jpeg,image/webp,application/pdf"></label>
+            <label>캡처 텍스트<textarea name="text" rows="4" placeholder="이미지를 업로드하면 추출된 텍스트가 여기에 표시됩니다."></textarea></label>
             <button class="button" type="submit">Upstage로 구조화</button>
             <pre id="document-result" class="document-result">아직 처리된 문서가 없습니다.</pre>
           </form>

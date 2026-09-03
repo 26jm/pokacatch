@@ -36,6 +36,20 @@ async function parseWithUpstage(url, text) {
   const parsedContent = JSON.parse(content.replace(/^```json\s*|\s*```$/g, "").trim());
   return { ...parseTwitter(url, text), parsed_fields: parsedContent };
 }
+async function extractDocumentText(file) {
+  if (!UPSTAGE_API_KEY) throw new Error("UPSTAGE_API_KEY_MISSING");
+  const match = String(file || "").match(/^data:([^;]+);base64,(.+)$/s);
+  if (!match) throw new Error("INVALID_DOCUMENT_IMAGE");
+  const [, contentType, encoded] = match;
+  const form = new FormData();
+  form.append("document", new Blob([Buffer.from(encoded, "base64")], { type: contentType }), `upload.${contentType.split("/")[1] || "bin"}`);
+  const response = await fetch("https://api.upstage.ai/v1/document-digitization", { method: "POST", headers: { Authorization: `Bearer ${UPSTAGE_API_KEY}` }, body: form });
+  if (!response.ok) throw new Error(`UPSTAGE_DOCUMENT_API_ERROR_${response.status}`);
+  const result = await response.json();
+  const text = result.text || result.content || (result.pages || []).map((page) => page.text || "").join("\n");
+  if (!text) throw new Error("UPSTAGE_DOCUMENT_EMPTY");
+  return text;
+}
 function recommendPrices(total, weights) { const entries = Object.entries(weights || {}); const average = entries.reduce((sum, [, value]) => sum + Number(value), 0) / entries.length; if (!entries.length || !Number.isFinite(total) || total < 0 || average <= 0) throw new Error("INVALID_PRICING_INPUT"); const prices = Object.fromEntries(entries.map(([member, value]) => [member, Math.round(total / entries.length * Number(value) / average / 100) * 100])); const highest = entries.sort(([, a], [, b]) => b - a)[0][0]; prices[highest] += total - Object.values(prices).reduce((sum, value) => sum + value, 0); return prices; }
 async function getOne(table, id) { const { data, error } = await supabase.from(table).select("*").eq("id", id).maybeSingle(); if (error) throw error; return data; }
 
@@ -48,6 +62,7 @@ const handler = async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/v1/auth/register") { const input = await body(req); if (!input.email || !input.password || !["CUSTOMER", "SELLER"].includes(input.role || "CUSTOMER")) return send(res, 400, { error: "INVALID_REGISTRATION" }); const user = { id: `${(input.role || "CUSTOMER").toLowerCase()}-${randomUUID()}`, email: input.email, password_hash: input.password, role: input.role || "CUSTOMER", twitter_handle: input.twitter_handle || null }; const { data, error } = await supabase.from("users").insert(user).select("id,email,role,twitter_handle").single(); if (error) return send(res, error.code === "23505" ? 409 : 400, { error: error.code === "23505" ? "EMAIL_ALREADY_EXISTS" : "INVALID_REGISTRATION" }); return send(res, 201, { user: data, token: `demo-token-${data.id}` }); }
     if (req.method === "POST" && url.pathname === "/api/v1/auth/login") { const input = await body(req); const { data, error } = await supabase.from("users").select("id,email,role,twitter_handle").eq("email", input.email).eq("password_hash", input.password).maybeSingle(); if (error) throw error; if (!data) return send(res, 401, { error: "INVALID_CREDENTIALS" }); return send(res, 200, { user: data, token: `demo-token-${data.id}` }); }
     if (req.method === "POST" && url.pathname === "/api/v1/twitter/parse") { const input = await body(req); return send(res, 200, await parseWithUpstage(input.url, input.text || "")); }
+    if (req.method === "POST" && url.pathname === "/api/v1/documents/parse") { const input = await body(req); if (!input.image) return send(res, 400, { error: "DOCUMENT_IMAGE_REQUIRED" }); const text = await extractDocumentText(input.image); const parsed = await parseWithUpstage("https://x.com/document-upload", text); return send(res, 200, { ...parsed, extracted_text: text }); }
     if (req.method === "POST" && url.pathname === "/api/projects/pricing/recommend") { const input = await body(req); return send(res, 200, { total_cost: input.total_cost, prices: recommendPrices(input.total_cost, input.members_weights) }); }
     if (req.method === "GET" && url.pathname === "/api/v1/search") { let query = supabase.from("products").select("*").eq("status", "ACTIVE"); const keyword = url.searchParams.get("keyword"); const category = url.searchParams.get("category"); if (category) query = query.eq("category", category); if (keyword) query = query.or(`title.ilike.%${keyword}%,category.ilike.%${keyword}%,description.ilike.%${keyword}%`); const sort = url.searchParams.get("sort_by") || "popular"; query = sort === "price" ? query.order("price") : sort === "deadline" ? query.order("deadline", { ascending: true, nullsFirst: false }) : query.order("popularity", { ascending: false }); const { data, error } = await query; if (error) throw error; return send(res, 200, paging(data || [], url)); }
     if (req.method === "GET" && url.pathname === "/api/v1/recommendations") { const user = role(req, res, ["CUSTOMER"]); if (!user) return; const { data: logs, error: logError } = await supabase.from("purchase_logs").select("category").eq("customer_id", user.userId); if (logError) throw logError; const categories = new Set((logs || []).map((log) => log.category)); const { data, error } = await supabase.from("products").select("*").eq("status", "ACTIVE").order("popularity", { ascending: false }); if (error) throw error; return send(res, 200, { items: (data || []).map((item) => ({ ...item, recommendation_score: item.popularity * .35 + (categories.has(item.category) ? 45 : 0) })).sort((a, b) => b.recommendation_score - a.recommendation_score).slice(0, 6) }); }
