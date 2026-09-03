@@ -1,7 +1,8 @@
-import "dotenv/config";
-import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
-import { createClient } from "@supabase/supabase-js";
+// [수정 1] Vercel 서버리스 환경과의 모듈 호환성을 위해 require 방식으로 통일
+require("dotenv").config();
+const { createServer } = require("node:http");
+const { randomUUID } = require("node:crypto");
+const { createClient } = require("@supabase/supabase-js");
 
 const { SUPABASE_URL, SUPABASE_ANON_KEY, SUPERBASE_ANNON_KEY, UPSTAGE_API_KEY, UPSTAGE_MODEL = "solar-pro2" } = process.env;
 const anonKey = SUPABASE_ANON_KEY || SUPERBASE_ANNON_KEY;
@@ -42,6 +43,7 @@ async function getOne(table, id) { const { data, error } = await supabase.from(t
 const server = createServer(async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, {});
   const url = new URL(req.url, "http://localhost:3000");
+
   try {
     if (req.method === "GET" && url.pathname === "/health") { const { error } = await supabase.from("users").select("id", { head: true }); if (error) throw error; return send(res, 200, { ok: true, database: "supabase" }); }
     if (req.method === "POST" && url.pathname === "/api/v1/auth/register") { const input = await body(req); if (!input.email || !input.password || !["CUSTOMER", "SELLER"].includes(input.role || "CUSTOMER")) return send(res, 400, { error: "INVALID_REGISTRATION" }); const user = { id: `${(input.role || "CUSTOMER").toLowerCase()}-${randomUUID()}`, email: input.email, password_hash: input.password, role: input.role || "CUSTOMER", twitter_handle: input.twitter_handle || null }; const { data, error } = await supabase.from("users").insert(user).select("id,email,role,twitter_handle").single(); if (error) return send(res, error.code === "23505" ? 409 : 400, { error: error.code === "23505" ? "EMAIL_ALREADY_EXISTS" : "INVALID_REGISTRATION" }); return send(res, 201, { user: data, token: `demo-token-${data.id}` }); }
@@ -72,6 +74,22 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/v1/seller/payouts/monthly") { const seller = role(req, res, ["SELLER", "ADMIN"]); if (!seller) return; const { data, error } = await supabase.from("payments").select("amount,products!inner(seller_id)").eq("status", "RELEASED"); if (error) throw error; const rows = seller.role === "ADMIN" ? data || [] : (data || []).filter((item) => item.products.seller_id === seller.userId); const gross = rows.reduce((sum, item) => sum + item.amount, 0); return send(res, 200, { month: new Date().toISOString().slice(0, 7), gross, platform_fee: Math.round(gross * .1), estimated_payout: Math.round(gross * .9) }); }
     if (req.method === "GET" && url.pathname === "/api/v1/seller/reviews") { const seller = role(req, res, ["SELLER", "ADMIN"]); if (!seller) return; const { data, error } = await supabase.from("reviews").select("*, products!inner(seller_id)"); if (error) throw error; return send(res, 200, { items: seller.role === "ADMIN" ? data || [] : (data || []).filter((review) => review.products.seller_id === seller.userId) }); }
     return send(res, 404, { error: "NOT_FOUND" });
-  } catch (error) { return send(res, error.message === "INVALID_JSON" || error.message?.startsWith("INVALID_") ? 400 : 500, { error: error.message || "INTERNAL_ERROR" }); }
+  } catch (error) {
+    return send(
+      res,
+      error.message === "INVALID_JSON" || error.message?.startsWith("INVALID_") ? 400 : 500,
+      { error: error.message || "INTERNAL_ERROR" }
+    );
+  }
 });
-server.listen(process.env.PORT || 3000, () => console.log("Group-buying API listening on http://localhost:3000"));
+
+// [수정 4] Vercel 서버리스 호환 핸들러 내보내기 (module.exports = server 대신 이벤트 루프 바인딩)
+module.exports = async (req, res) => {
+  await server.emit("request", req, res);
+};
+
+if (process.env.NODE_ENV !== "production") {
+  server.listen(process.env.PORT || 3000, () =>
+    console.log("Group-buying API listening on http://localhost:3000")
+  );
+}
