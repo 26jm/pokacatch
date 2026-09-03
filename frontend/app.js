@@ -5,7 +5,7 @@
  * POST /api/v1/cart/items, POST /api/v1/checkout
  * GET  /api/v1/seller/analytics/sales, /seller/payouts/monthly, /seller/reviews
  */
-const API_BASE_URL = "http://localhost:3000";
+const API_BASE_URL = window.__API_BASE_URL__ || (window.location.protocol === "file:" ? "http://localhost:3000" : "");
 const products = [
   { id: "p1", title: "SEVENTEEN 5집 포토카드 세트", category: "포토카드", tags: ["SEVENTEEN", "랜덤"], members: ["민규", "원우", "호시", "도겸"], price: 12500, participants: 42, min: 50, deadline: 3, popularity: 93, recency: 0.8, member_limit: 15 },
   { id: "p2", title: "aespa 공식 응원봉 공동구매", category: "응원봉", tags: ["aespa", "공식"], price: 39800, participants: 76, min: 70, deadline: 1, popularity: 98, recency: 0.9 },
@@ -14,7 +14,7 @@ const products = [
   { id: "p5", title: "TXT 투어 티셔츠", category: "의류", tags: ["TXT", "투어"], members: ["수빈", "연준", "범규", "태현", "휴닝카이"], price: 28700, participants: 14, min: 30, deadline: 5, popularity: 72, recency: 0.5, member_limit: 8 },
   { id: "p6", title: "BLACKPINK 데코 스티커", category: "액세서리", tags: ["BLACKPINK", "한정"], members: ["지수", "제니", "로제", "리사"], price: 6900, participants: 61, min: 60, deadline: 4, popularity: 84, recency: 0.85, member_limit: 12 }
 ];
-const state = { cart: JSON.parse(localStorage.getItem("pokacatch-cart") || "[]"), role: localStorage.getItem("pokacatch-role") || "CUSTOMER", language: localStorage.getItem("pokacatch-language") || "ko" };
+const state = { cart: [], role: "CUSTOMER", language: "ko", userId: "customer-1" };
 const money = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const byId = (id) => document.getElementById(id);
 
@@ -26,7 +26,7 @@ function getFilteredProducts() {
 }
 async function loadMemberCounts(productId, memberSelects) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/members/${productId}`);
+    const response = await fetch(`${API_BASE_URL}/api/v1/members/${productId}`, { headers: identityHeaders() });
     const memberCounts = await response.json();
     updateMemberOptions(productId, memberSelects, memberCounts);
   } catch (error) {
@@ -98,12 +98,12 @@ document.addEventListener("click", (event) => { const button = event.target.clos
         if (picks.some((pick) => !pick)) { toast("1~3지망 멤버를 모두 선택해 주세요."); return; }
         if (new Set(picks).size !== picks.length) { toast("각 지망은 서로 다른 멤버로 선택해 주세요."); return; }
       }
-      if (!state.cart.some((entry) => (typeof entry === "string" ? entry : entry.productId) === id)) { state.cart.push(product.members ? { productId: id, picks } : { productId: id, picks: [] }); localStorage.setItem("pokacatch-cart", JSON.stringify(state.cart)); addToCartViaAPI(id, product.members ? picks : []); renderCart(); toast(`장바구니에 담았습니다.`); } else toast("이미 장바구니에 있습니다."); } if (event.target.closest("[data-close-dialog]")) byId("cart-dialog").close(); });
+      if (!state.cart.some((entry) => (typeof entry === "string" ? entry : entry.productId) === id)) { const hold = Date.now() + 5 * 60 * 1000; state.cart.push(product.members ? { productId: id, picks, heldUntil: hold } : { productId: id, picks: [], heldUntil: hold }); addToCartViaAPI(id, product.members ? picks : []); saveActivity({ type: "participation", title: product.title, message: "5분 선점 · 신청 정보와 입금 대기" }); renderCart(); renderActivities(); toast(`5분 동안 자리를 선점했습니다.`); } else toast("이미 장바구니에 있습니다."); } if (event.target.closest("[data-close-dialog]")) byId("cart-dialog").close(); });
 async function addToCartViaAPI(productId, picks) {
   try {
     await fetch(`${API_BASE_URL}/api/v1/cart/items`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...identityHeaders() },
       body: JSON.stringify({ product_id: productId, picks })
     });
   } catch (error) {
@@ -112,7 +112,47 @@ async function addToCartViaAPI(productId, picks) {
 }
 byId("search-form").addEventListener("submit", (event) => { event.preventDefault(); renderProducts(); });
 byId("cart-button").addEventListener("click", () => { renderCart(); byId("cart-dialog").showModal(); });
-byId("checkout-button").addEventListener("click", () => toast("데모입니다. 실제 결제는 POST /api/v1/checkout에 연결하세요."));
-byId("role-select").addEventListener("change", (event) => { state.role = event.target.value; localStorage.setItem("pokacatch-role", state.role); renderSeller(); toast(`${state.role} 역할로 전환했습니다.`); });
-byId("language-select").addEventListener("change", (event) => { state.language = event.target.value; localStorage.setItem("pokacatch-language", state.language); setDocumentLanguage(state.language); toast(state.language === "ar" ? "تم تفعيل اللغة العربية." : "언어가 변경되었습니다."); });
+async function checkout() {
+  const productIds = state.cart.map((entry) => typeof entry === "string" ? entry : entry.productId); if (!productIds.length) return toast("장바구니가 비어 있습니다.");
+  try { const response = await fetch(`${API_BASE_URL}/api/v1/checkout`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ product_ids: productIds }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "결제에 실패했습니다."); await saveActivity({ type: "settlement", title: "결제 완료", message: `${productIds.length}건 · 가상계좌 입금 확인` }); state.cart = []; renderCart(); renderActivities(); toast("신청이 완료되었습니다. 플랫폼 계좌에 보관됩니다."); } catch (error) { await saveActivity({ type: "settlement", title: "결제 대기", message: `${productIds.length}건 · 전용 가상계좌 발급 대기` }); renderActivities(); toast(`결제 상태를 기록했습니다: ${error.message}`); }
+}
+byId("checkout-button").addEventListener("click", checkout);
+byId("role-select").addEventListener("change", (event) => { state.role = event.target.value; renderSeller(); renderActivities(); toast(`${state.role} 역할로 전환했습니다.`); });
+byId("language-select").addEventListener("change", (event) => { state.language = event.target.value; setDocumentLanguage(state.language); toast(state.language === "ar" ? "تم تفعيل اللغة العربية." : "언어가 변경되었습니다."); });
 initializeCategories(); renderProducts(); renderRecommendations(); renderCart(); renderSeller();
+
+function identityHeaders() {
+  return { "X-Demo-Role": state.role, "X-Demo-User": state.userId };
+}
+async function saveActivity(value) {
+  try { await fetch(`${API_BASE_URL}/api/v1/activity`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify(value) }); } catch (error) { console.warn("Supabase 활동 기록 실패:", error); }
+}
+async function renderActivities() {
+  try { const response = await fetch(`${API_BASE_URL}/api/v1/activity`, { headers: identityHeaders() }); const result = await response.json(); const render = (id, values, empty) => byId(id).replaceChildren(...(values.length ? values.map((item) => Object.assign(document.createElement("p"), { className: "activity-item", textContent: `${item.title || item.message} · ${new Date(item.created_at).toLocaleString("ko-KR")}` })) : [Object.assign(document.createElement("p"), { className: "muted", textContent: empty })])); render("participation-list", result.items.filter((item) => item.type === "participation"), "참여한 공구가 없습니다."); render("settlement-list", result.items.filter((item) => item.type === "settlement"), "정산·환불 내역이 없습니다."); render("notification-list", result.items.filter((item) => item.type === "notification" || item.type === "dispute"), "새 알림이 없습니다."); byId("identity-status").textContent = result.account ? `계좌 등록됨 · ${state.role}` : `계정 세션 · ${state.role}`; } catch (error) { console.warn("Supabase 활동 조회 실패:", error); }
+}
+function setWorkflowStatus(message, danger = false) { const status = byId("workflow-status"); status.textContent = message; status.className = `status${danger ? " denied" : ""}`; toast(message); }
+function parseSlots(value) { return value.split(",").map((entry) => { const [member_name, price] = entry.split(":").map((part) => part.trim()); return { member_name, price: Number(price) }; }).filter((slot) => slot.member_name && Number.isFinite(slot.price)); }
+async function submitAuth(event) {
+  event.preventDefault(); const form = event.currentTarget; const action = event.submitter?.dataset.action; const data = Object.fromEntries(new FormData(form));
+  if (action === "save-account") { return; }
+  if (!data.email || !data.password) return;
+  try { const response = await fetch(`${API_BASE_URL}/api/v1/auth/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "인증에 실패했습니다."); state.userId = result.user.id; state.role = result.user.role; setWorkflowStatus(action === "register" ? "회원가입이 완료되었습니다." : "로그인했습니다."); renderSeller(); renderActivities(); loadCart(); } catch (error) { setWorkflowStatus(`인증 실패: ${error.message}`, true); }
+}
+async function openProject(event) {
+  event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); const slots = parseSlots(data.slots); if (!slots.length) return setWorkflowStatus("자리를 member:가격 형식으로 입력해 주세요.", true);
+  const project = { group_name: data.group_name, goods_type: data.goods_type, source_url: data.source_url || null, slots, title: `${data.group_name} ${data.goods_type} 공동구매`, shipping_policy: { fixed_fee: 3000, deadline: data.deadline, quantity: Number(data.quantity) } };
+  try { const response = await fetch(`${API_BASE_URL}/api/projects`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify(project) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "공구 개설에 실패했습니다."); await saveActivity({ type: "participation", title: `공구 개설: ${project.title}`, message: "보증금 입금 대기" }); setWorkflowStatus("보증금 안내를 생성하고 공구를 등록했습니다."); renderActivities(); } catch (error) { setWorkflowStatus(`공구를 저장하지 못했습니다: ${error.message}`, true); }
+}
+async function processDocument(event) {
+  event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); const resultNode = byId("document-result"); resultNode.textContent = "AI가 문서를 분석하는 중...";
+  try { const response = await fetch(`${API_BASE_URL}/api/v1/twitter/parse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: "https://x.com/groupbuy/post", text: data.text }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "문서 분석 실패"); resultNode.textContent = JSON.stringify({ kind: data.kind, ...result.parsed_fields, confidence: "검토 필요" }, null, 2); await saveActivity({ type: "notification", message: `${data.kind === "receipt" ? "영수증" : "송장"} 구조화 완료 · 민감정보 마스킹 검토 필요` }); renderActivities(); setWorkflowStatus("문서 구조화가 완료되었습니다."); } catch (error) { resultNode.textContent = JSON.stringify({ kind: data.kind, status: "확인 큐", error: error.message }, null, 2); setWorkflowStatus("AI 결과를 확인 큐에 등록했습니다."); }
+}
+document.querySelector("#auth-form")?.addEventListener("submit", submitAuth);
+document.querySelector("#open-project-form")?.addEventListener("submit", openProject);
+document.querySelector("#document-form")?.addEventListener("submit", processDocument);
+document.querySelector("[data-action='save-account']")?.addEventListener("click", async () => { const form = byId("auth-form"); const account = form.elements.account.value.trim(); if (!account) return; const response = await fetch(`${API_BASE_URL}/api/v1/account`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ account }) }); if (!response.ok) return setWorkflowStatus("계좌 저장에 실패했습니다.", true); setWorkflowStatus("환급·정산 계좌를 저장했습니다."); renderActivities(); });
+document.querySelector("[data-action='notify']")?.addEventListener("click", async () => { await saveActivity({ type: "notification", message: "빈자리 알림 대기 등록 · 자리가 열리면 알림" }); setWorkflowStatus("자리 알림을 등록했습니다."); renderActivities(); });
+document.querySelector("[data-action='dispute']")?.addEventListener("click", async () => { await saveActivity({ type: "dispute", message: "분쟁 신고 접수 · 정산 보류 상태" }); setWorkflowStatus("분쟁 신고를 접수하고 정산을 보류했습니다."); renderActivities(); });
+async function loadCart() { try { const response = await fetch(`${API_BASE_URL}/api/v1/cart`, { headers: identityHeaders() }); const result = await response.json(); if (response.ok) { state.cart = (result.items || []).map((item) => ({ productId: item.product.id, picks: item.picks || [] })); renderCart(); } } catch (error) { console.warn("Supabase 장바구니 조회 실패:", error); } }
+loadCart();
+renderActivities();

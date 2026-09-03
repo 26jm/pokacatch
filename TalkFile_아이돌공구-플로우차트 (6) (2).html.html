@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>아이돌공구 플로우차트</title>
+<style>
+:root{--font:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',-apple-system,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:#F7F6FB;color:#1C1A2E;padding:26px 30px 40px}
+.sub{color:#6B6880;font-size:13.5px;margin:2px 0 18px;font-weight:600}
+.legend{display:flex;gap:16px;flex-wrap:wrap;background:#fff;border:1px solid #ECEAF3;border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:12.5px;font-weight:600;color:#4a4860}
+.legend .it{display:flex;align-items:center;gap:7px}
+.sw{width:20px;height:14px;border-radius:4px;border:1.5px solid}
+.sw.proc{background:#CFE3FF;border-color:#5B8DEF}
+.sw.dec{background:#E6DBFF;border-color:#8B6DE0}
+.sw.term{background:#FCE0A2;border-color:#E0A93C;border-radius:999px}
+.sw.trust{background:#DCF3EA;border-color:#12A87E}
+.sw.doc{background:#D7F0FA;border-color:#2596BE}
+.sw.report{background:#FFE9D6;border-color:#E08A3C}
+.sw.danger{background:#FCEBEB;border-color:#E24B4A}
+.frame{background:#fff;border:1px solid #ECEAF3;border-radius:16px;padding:20px;overflow:auto}
+#chart{min-width:1900px}
+#chart svg{max-width:none !important;height:auto}
+.fallback{color:#C42A57;font-size:13px;padding:20px}
+</style>
+</head>
+<body>
+  <div class="sub">아이돌 포토카드 분철 공구 플랫폼 · 진입/인증 → 참여자 흐름 → 총대 흐름 → 문서 AI → 마이페이지</div>
+
+  <div class="legend">
+    <div class="it"><span class="sw proc"></span>화면·기능(프로세스)</div>
+    <div class="it"><span class="sw dec"></span>분기(판단)</div>
+    <div class="it"><span class="sw term"></span>시작·종료</div>
+    <div class="it"><span class="sw trust"></span>신뢰 레이어(보증금·가상계좌·자동확정)</div>
+    <div class="it"><span class="sw doc"></span>문서 AI(Parse·Extract)</div>
+    <div class="it"><span class="sw report"></span>리포트(자동 갱신)</div>
+    <div class="it"><span class="sw danger"></span>귀책·몰수·분쟁</div>
+  </div>
+
+  <div class="frame"><div id="chart"><div class="fallback">플로우차트를 그리는 중…</div></div></div>
+
+<script>
+var DEF = [
+'flowchart LR',
+'  A([스플래시]):::term --> B{로그인}',
+'  B -->|NO 계정없음| C[회원가입<br/>닉네임·관심아이돌·역할]',
+'  C --> ACC[환급·정산 계좌 등록<br/>카드 등록 없음]',
+'  ACC --> H[홈]',
+'  B -->|YES| H',
+'  H --> S1[빈자리 검색]',
+'  H --> T1[공구 개설]',
+'  H --> MY[마이페이지]',
+
+'  subgraph BUYER [참여자 흐름 · 검색과 참여]',
+'    direction LR',
+'    S1 --> S2[검색·필터<br/>아이돌·멤버·굿즈·가격]',
+'    S2 --> S3[최애 빈자리만 보기]',
+'    S3 --> S4[공구 상세<br/>자리·신뢰도·보증금·증빙]',
+'    S4 --> S5{빈자리 있음?}',
+'    S5 -->|NO 마감| S6[자리 알림 대기등록]',
+'    S6 -. 자리 열리면 즉시 알림 .-> S4',
+'    S5 -->|YES| SH[[자리 5분 홀드·선점<br/>선착순 락]]:::trust',
+'    SH -. 5분 내 미입금 → 자동 해제 .-> S5',
+'    SH --> S7[신청·배송정보 입력<br/>배송비 고정]',
+'    S7 --> VA[[전용 가상계좌 발급<br/>입금자명 무관]]:::trust',
+'    VA --> S8{입금 자동 확인}',
+'    S8 -->|기한 만료| S5',
+'    S8 -->|확인| S9[신청 완료<br/>플랫폼 계좌 보관]',
+'    S9 --> RB[[참여자 리포트<br/>단계별 자동 갱신]]:::report',
+'    RB --> P3{수령 확인}',
+'    P3 -->|보류| RB',
+'    P3 -->|미확인 D+7| AC[[자동 수령확정]]:::trust',
+'    P3 -->|확인| P4[후기 작성]',
+'    AC --> P4',
+'    P3 -->|문제 발생| CL[분쟁 신고<br/>자동확정·정산 정지]:::danger',
+'    P4 --> P5[[총대 신뢰도 반영]]:::trust',
+'  end',
+
+'  subgraph SELLER [총대 흐름 · 개설과 관리와 정산]',
+'    direction LR',
+'    T1 --> T2[공구 정보 입력<br/>아이돌·굿즈·1차 판매처·마감일]',
+'    T2 --> T3[멤버 자리·가격 설정]',
+'    T3 --> T4[필요 앨범 수량 선언<br/>영수증 검증 기준값]',
+'    T4 --> TD[[보증금 가상계좌 입금<br/>모집액 10%·신뢰도 감면]]:::trust',
+'    TD --> T5[공구 오픈]',
+'    T5 --> T6[검색 노출]',
+'    T5 --> D1[총대 대시보드]',
+'    D1 --> RG[[총대 리포트<br/>단계별 자동 갱신]]:::report',
+'    D1 --> ED[수정 요청<br/>인하·자리추가·연장만]',
+'    D1 --> D2[주문 현황<br/>입금·주소 자동취합]',
+'    D1 --> D3[자리 채움·공석 현황]',
+'    D3 --> QF[[공석 급구<br/>대기자 즉시 매칭]]:::trust',
+'    D1 --> M1{전원 입금 완료?}',
+'    M1 -->|미달·공석| M2[공석 처리<br/>급구·가격인하]',
+'    M2 --> QF',
+'    QF --> MC{채워졌나?}',
+'    MC -->|아니오| MX([공구 취소<br/>전원 자동환불·보증금 반환]):::term',
+'    MC -->|예| M1',
+'    M1 -->|완료 D0| M3[포장 취합표 자동생성]',
+'    M3 --> PU[총대 1차 구매<br/>후구매 원칙]',
+'    PU --> RC[영수증 캡처 업로드]',
+'    RC --> RX[[영수증 자동 구조화<br/>판매처·주문번호·주문일시·앨범수량]]:::doc',
+'    RX --> VF{자동 검증 4항목<br/>유니크·판매처·주문일시·수량}',
+'    VF -->|실패·기한초과| SM[소명 요청 48시간]:::danger',
+'    SM -->|소명 인정| MX',
+'    SM -->|무응답·반려| MF[보증금 몰수<br/>전원 환불·위약보상]:::danger',
+'    VF -->|통과| MK[[민감정보 자동 마스킹<br/>증빙 공개]]:::doc',
+'    MK --> OP[개봉 결과 입력<br/>+ 개봉 인증샷]',
+'    OP --> AS{나온 수량 ≥ 자리 수?}',
+'    AS -->|부족| UN[미배정 자동 환불<br/>+ 다음 공구 우선권]',
+'    AS -->|충족| AL[배정 처리<br/>배정 로그 공개]',
+'    UN --> AL',
+'    AL --> SC[송장 캡처 업로드]',
+'    SC --> SX[[송장 자동 구조화·매칭<br/>행 단위 추출 → 참여자 매칭]]:::doc',
+'    SX --> MT{매칭 완료?}',
+'    MT -->|확인 필요| CQ[확인 큐<br/>총대 원탭 확인]',
+'    CQ --> MT',
+'    MT -->|인식 실패| MN[송장 수동 입력]',
+'    MN --> SP',
+'    MT -->|완료| SP[발송 확정]',
+'    SP --> M7{전원 수령확인<br/>또는 D+7 자동확정}',
+'    M7 -->|대기| SP',
+'    M7 -->|분쟁 있음| MH[정산 보류<br/>분쟁 종결까지]:::danger',
+'    M7 -->|완료| M8[정산 자동이체<br/>+ 보증금 전액 반환]',
+'    M8 --> M9([정산 완료]):::term',
+'  end',
+
+'  subgraph DOCAI [문서 AI 파이프라인 · 영수증·송장 공통]',
+'    direction LR',
+'    G1[캡처 전처리<br/>다크모드·스크롤 병합·중복 제거]:::doc',
+'    G1 --> G2[[Document Parse<br/>표 구조·레이아웃·좌표 복원]]:::doc',
+'    G2 --> G3[[Information Extract<br/>스키마 기반 JSON 정규화]]:::doc',
+'    G3 --> G4{신뢰도 임계값}',
+'    G4 -->|미달| G5[총대 확인 UI<br/>해당 필드만 확인]:::doc',
+'    G5 --> G6[[추출·수정 로그<br/>스키마 개선]]:::doc',
+'    G4 -->|통과| G6',
+'  end',
+
+'  RX -. 내부 처리 .-> G1',
+'  SX -. 내부 처리 .-> G1',
+'  MK -. 좌표 기반 마스킹 .-> G2',
+'  CQ -. 확인 큐 .-> G5',
+'  RX -. 증빙 자동 편입 .-> RG',
+'  SX -. 매칭 결과 자동 편입 .-> RG',
+'  MK -. 마스킹 증빙 공개 .-> RB',
+'  AL -. 개봉·배정 결과 공개 .-> RB',
+'  SP -. 배송상태 자동 공유 .-> RB',
+'  UN -. 환불 안내 .-> RB',
+'  P4 -. 수령·후기 완료 .-> M7',
+'  AC -. 자동확정 반영 .-> M7',
+'  CL -. 정산 정지 트리거 .-> MH',
+'  QF -. 자리 열림 즉시 알림 .-> S6',
+'  MF -. 환불·보상 지급 .-> RB',
+'  M8 --> RL[정산 내역 리스트]',
+
+'  subgraph MYPAGE [마이페이지]',
+'    direction LR',
+'    MY --> Y1[환급·정산 계좌 관리]',
+'    MY --> Y2[내 공구 관리·총대]',
+'    Y2 --> Y2a[개설/수정/마감·보증금 현황]',
+'    MY --> Y3[내 참여 관리·참여자]',
+'    Y3 --> Y3a[진행중/완료]',
+'    MY --> Y4[정산·환불 내역]',
+'    Y4 --> RL',
+'    MY --> Y5[신뢰도·후기 관리]',
+'    MY --> Y6[내 정보 관리]',
+'    MY --> Y7[알림 설정]',
+'    MY --> Y8[고객센터·분쟁 신고]',
+'    Y8 --> CL',
+'  end',
+
+'  classDef default fill:#CFE3FF,stroke:#5B8DEF,stroke-width:1px,color:#173a6b;',
+'  classDef term fill:#FCE0A2,stroke:#E0A93C,stroke-width:1px,color:#7a4f06;',
+'  classDef trust fill:#DCF3EA,stroke:#12A87E,stroke-width:1.4px,color:#0b6e53;',
+'  classDef doc fill:#D7F0FA,stroke:#2596BE,stroke-width:1.4px,color:#0b5c73;',
+'  classDef report fill:#FFE9D6,stroke:#E08A3C,stroke-width:1.4px,color:#8a4b12;',
+'  classDef danger fill:#FCEBEB,stroke:#E24B4A,stroke-width:1.2px,color:#791F1F;',
+'  class B,S5,S8,M1,MC,P3,M7,VF,AS,MT,G4 decision;',
+'  classDef decision fill:#E6DBFF,stroke:#8B6DE0,stroke-width:1px,color:#432a86;'
+].join('\n');
+
+var SRCS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js',
+  'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js'
+];
+function draw(){
+  try{
+    mermaid.initialize({startOnLoad:false, theme:'base', securityLevel:'loose',
+      flowchart:{htmlLabels:true, nodeSpacing:40, rankSpacing:68, curve:'basis', useMaxWidth:false},
+      fontFamily:"'Pretendard','Malgun Gothic',sans-serif",
+      themeVariables:{fontSize:'13px', clusterBkg:'#F3F1FB', clusterBorder:'#DAD5F0', lineColor:'#9C99AD'}});
+    mermaid.render('zariGraph', DEF).then(function(res){
+      document.getElementById('chart').innerHTML = res.svg;
+    }).catch(function(e){
+      document.getElementById('chart').innerHTML = '<div class="fallback">렌더 오류: '+e.message+'</div>';
+    });
+  }catch(e){ document.getElementById('chart').innerHTML = '<div class="fallback">초기화 오류: '+e.message+'</div>'; }
+}
+function loadSeq(i){
+  if(i>=SRCS.length){ document.getElementById('chart').innerHTML='<div class="fallback">Mermaid 로드 실패. 네트워크 설정을 확인해 주세요.</div>'; return; }
+  var s=document.createElement('script'); s.src=SRCS[i];
+  s.onload=function(){ (typeof mermaid!=='undefined')?draw():loadSeq(i+1); };
+  s.onerror=function(){ loadSeq(i+1); };
+  document.head.appendChild(s);
+}
+loadSeq(0);
+</script>
+</body>
+</html>

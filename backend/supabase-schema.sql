@@ -55,6 +55,15 @@ create table if not exists shipments (
   project_id uuid primary key references projects(id) on delete cascade, carrier text not null, tracking_number text not null,
   shipped_at timestamptz not null default now()
 );
+create table if not exists payout_accounts (
+  user_id text primary key references users(id) on delete cascade, account text not null,
+  updated_at timestamptz not null default now()
+);
+create table if not exists activities (
+  id uuid primary key default gen_random_uuid(), user_id text not null references users(id) on delete cascade,
+  type text not null check (type in ('participation', 'settlement', 'notification', 'dispute')),
+  title text, message text not null, created_at timestamptz not null default now()
+);
 
 create or replace function apply_project_slot(target_slot_id uuid, target_user_id text)
 returns project_slots language plpgsql security definer as $$
@@ -81,3 +90,5 @@ alter table purchase_logs enable row level security;
 alter table member_selections enable row level security;
 alter table reviews enable row level security;
 alter table shipments enable row level security;
+alter table payout_accounts enable row level security;
+alter table activities enable row level security;

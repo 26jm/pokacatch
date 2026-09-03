@@ -15,6 +15,8 @@
       <a class="brand" href="#home" aria-label="PokaCatch 홈">Poka-Catch<span>✦</span></a>
       <nav aria-label="주요 메뉴">
         <a href="#home">둘러보기</a>
+        <a href="#workbench">공구 관리</a>
+        <a href="#mypage">마이페이지</a>
         <a href="#seller">판매자</a>
       </nav>
       <div class="header-actions">
@@ -61,6 +63,47 @@
       <section id="seller" class="panel seller-panel" aria-labelledby="seller-title">
         <div class="section-heading"><div><p class="eyebrow">SELLER</p><h2 id="seller-title">판매자 대시보드</h2></div><span id="seller-access" class="status"></span></div>
         <div id="seller-content"></div>
+      </section>
+
+      <section id="workbench" class="panel workflow-panel" aria-labelledby="workflow-title">
+        <div class="section-heading"><div><p class="eyebrow">WORKBENCH</p><h2 id="workflow-title">공구 작업실</h2></div><span id="workflow-status" class="status">대기 중</span></div>
+        <div class="workbench-grid">
+          <form id="auth-form" class="workflow-card">
+            <h3>계정·환급 계좌</h3>
+            <label>이메일<input name="email" type="email" required placeholder="you@example.com"></label>
+            <label>비밀번호<input name="password" type="password" required minlength="6"></label>
+            <label>역할<select name="role"><option value="CUSTOMER">참여자</option><option value="SELLER">총대</option></select></label>
+            <button class="button" data-action="register" type="submit">회원가입</button>
+            <button class="button button-secondary" data-action="login" type="submit">로그인</button>
+            <div class="account-fields"><label>환급 계좌<input name="account" placeholder="은행·계좌번호"></label><button class="button button-secondary" data-action="save-account" type="button">계좌 저장</button></div>
+          </form>
+          <form id="open-project-form" class="workflow-card">
+            <h3>공구 개설</h3>
+            <label>아이돌<input name="group_name" required placeholder="그룹명"></label>
+            <label>굿즈<input name="goods_type" required placeholder="포토카드"></label>
+            <label>1차 판매처<input name="source_url" type="url" placeholder="https://..."></label>
+            <label>마감일<input name="deadline" type="date" required></label>
+            <label>자리와 가격<input name="slots" required placeholder="민규:12000, 원우:12000"></label>
+            <label>필요 앨범 수량<input name="quantity" type="number" min="1" value="1" required></label>
+            <button class="button" type="submit">보증금 안내 후 공구 오픈</button>
+          </form>
+          <form id="document-form" class="workflow-card">
+            <h3>문서 AI 처리</h3>
+            <label>문서 종류<select name="kind"><option value="receipt">영수증</option><option value="waybill">송장</option></select></label>
+            <label>캡처 텍스트<textarea name="text" rows="4" required placeholder="이미지에서 읽은 영수증 또는 송장 내용을 붙여 넣으세요."></textarea></label>
+            <button class="button" type="submit">Upstage로 구조화</button>
+            <pre id="document-result" class="document-result">아직 처리된 문서가 없습니다.</pre>
+          </form>
+        </div>
+      </section>
+
+      <section id="mypage" class="panel mypage-panel" aria-labelledby="mypage-title">
+        <div class="section-heading"><div><p class="eyebrow">MY PAGE</p><h2 id="mypage-title">내 활동</h2></div><span id="identity-status" class="status">로그아웃 상태</span></div>
+        <div class="my-grid">
+          <div><h3>내 참여</h3><div id="participation-list" class="activity-list"></div></div>
+          <div><h3>정산·환불</h3><div id="settlement-list" class="activity-list"></div></div>
+          <div><h3>알림·분쟁</h3><button class="button button-secondary" data-action="notify">자리 알림 대기 등록</button><button class="button button-danger" data-action="dispute">현재 주문 분쟁 신고</button><div id="notification-list" class="activity-list"></div></div>
+        </div>
       </section>
     </main>
 

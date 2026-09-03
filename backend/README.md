@@ -12,19 +12,21 @@ npm start
 
 1. Supabase Dashboard의 `SQL Editor`에서 `supabase-schema.sql` 전체를 실행합니다.
 2. 먼저 `users`에 판매자와 고객을 넣거나 API의 회원가입을 호출합니다. 현재 데모 인증은 `X-Demo-Role`, `X-Demo-User` 헤더를 사용합니다.
-3. 서버는 `SUPABASE_SERVICE_ROLE_KEY`로만 Supabase에 접근합니다. 이 키는 RLS를 우회하므로 브라우저에 노출하면 안 됩니다.
+3. 서버는 `SUPABASE_ANON_KEY`로 Supabase에 접근합니다. Supabase에서 필요한 테이블에 anon 역할용 RLS 정책을 추가해야 합니다.
 
 로컬에서는 `.env.example`을 `.env`로 복사하고 실제 값을 입력합니다.
 
 ```env
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_ANON_KEY=your-anon-key
+UPSTAGE_API_KEY=your-upstage-api-key
+UPSTAGE_MODEL=solar-pro2
 PORT=3000
 ```
 
-Vercel에서는 프로젝트의 `Settings > Environment Variables`에 같은 세 변수를 등록하고 `Production`, `Preview`, `Development` 환경을 필요한 범위로 선택한 뒤 재배포합니다. `SUPABASE_SERVICE_ROLE_KEY`는 `NEXT_PUBLIC_` 또는 `VITE_` 접두사를 사용하지 않습니다.
+Vercel에서는 프로젝트의 `Settings > Environment Variables`에 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `UPSTAGE_API_KEY`, `UPSTAGE_MODEL`을 등록하고 `Production`, `Preview`, `Development` 환경을 필요한 범위로 선택한 뒤 재배포합니다. Supabase와 Upstage 키는 프런트엔드 변수(`NEXT_PUBLIC_` 또는 `VITE_`)로 만들지 않습니다.
 
-현재 서버의 모든 고객, 판매자, 상품, 프로젝트, 슬롯, 장바구니, 주문, 결제, 구매이력, 후기, 배송 데이터는 Supabase 테이블을 사용합니다. 실제 결제 성공을 자동 확정하는 단계는 아직 `STRIPE_ADAPTER` 데모이므로 운영에서는 결제사 웹훅과 DB 트랜잭션을 추가해야 합니다.
+현재 서버의 모든 고객, 판매자, 상품, 프로젝트, 슬롯, 장바구니, 주문, 결제, 구매이력, 후기, 배송, 환급계좌, 활동·알림·분쟁 데이터는 Supabase 테이블을 사용합니다. 스키마를 변경한 뒤에는 `supabase-schema.sql` 전체를 다시 실행해야 합니다. 실제 결제 성공을 자동 확정하는 단계는 아직 `STRIPE_ADAPTER` 데모이므로 운영에서는 결제사 웹훅과 DB 트랜잭션을 추가해야 합니다.
 
 ## 도메인 정의
 
