@@ -1,26 +1,25 @@
-import "dotenv/config";
-import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
-import { createClient } from "@supabase/supabase-js";
+// [수정 1] Vercel 서버리스 환경과의 모듈 호환성을 위해 require 방식으로 통일
+require("dotenv").config();
+const { createServer } = require("node:http");
+const { randomUUID } = require("node:crypto");
+const { createClient } = require("@supabase/supabase-js");
 
-// 1. 환경 변수 매칭 (SUPABASE_ANON_KEY로 수정 완료)
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = process.env;
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error("SUPABASE_URL과 SUPABASE_ANON_KEY 환경 변수가 필요합니다.");
+// [수정 2] 환경 변수 추출 (SUPABASE_SERVICE_ROLE_KEY)
+const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error("SUPABASE_URL과 SUPABASE_SERVICE_ROLE_KEY 환경 변수가 필요합니다.");
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false }
 });
 
-// Helper 함수
 const send = (res, status, body) => {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, X-Demo-Role, X-Demo-User",
-    "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS"
   });
   res.end(JSON.stringify(body));
 };
@@ -40,7 +39,7 @@ const body = (req) =>
 
 const identity = (req) => ({
   role: req.headers["x-demo-role"] || "CUSTOMER",
-  userId: req.headers["x-demo-user"] || "customer-1",
+  userId: req.headers["x-demo-user"] || "customer-1"
 });
 
 function role(req, res, allowed) {
@@ -59,7 +58,7 @@ function paging(items, url) {
     items: items.slice((page - 1) * limit, page * limit),
     page,
     limit,
-    total: items.length,
+    total: items.length
   };
 }
 
@@ -75,7 +74,7 @@ async function projectView(project) {
     ...project,
     slots,
     total_slots: slots.length,
-    available_slots: slots.filter((slot) => !slot.is_occupied).length,
+    available_slots: slots.filter((slot) => !slot.is_occupied).length
   };
 }
 
@@ -88,7 +87,7 @@ function parseTwitter(url, text = "") {
     source_url: parsed.toString(),
     twitter_handle: handle ? `@${handle}` : null,
     raw_text: text,
-    parsed_fields: { group_name: null, goods_type: null, store_name: null },
+    parsed_fields: { group_name: null, goods_type: null, store_name: null }
   };
 }
 
@@ -101,7 +100,7 @@ function recommendPrices(total, weights) {
   const prices = Object.fromEntries(
     entries.map(([member, value]) => [
       member,
-      Math.round(((total / entries.length) * Number(value)) / average / 100) * 100,
+      Math.round(((total / entries.length) * Number(value)) / average / 100) * 100
     ])
   );
   const highest = entries.sort(([, a], [, b]) => b - a)[0][0];
@@ -115,15 +114,14 @@ async function getOne(table, id) {
   return data;
 }
 
-// 2. 서버 핸들러 정의
 const server = createServer(async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, {});
   const url = new URL(req.url, "http://localhost:3000");
 
   try {
-    // [핵심 해결 1] 404 방지용 기본 메인 루트 핸들러
+    // [수정 3] 루트 경로(/) 접속 시 404를 방지하는 응답 추가 (요청하신 app.get '/' 역할)
     if (req.method === "GET" && url.pathname === "/") {
-      return send(res, 200, { message: "Poka-Catch Backend API is running!" });
+      return send(res, 200, { message: "Poka-Catch Backend Server is Running!" });
     }
 
     if (req.method === "GET" && url.pathname === "/health") {
@@ -145,7 +143,7 @@ const server = createServer(async (req, res) => {
         email: input.email,
         password_hash: input.password,
         role: input.role || "CUSTOMER",
-        twitter_handle: input.twitter_handle || null,
+        twitter_handle: input.twitter_handle || null
       };
       const { data, error } = await supabase
         .from("users")
@@ -229,10 +227,10 @@ const server = createServer(async (req, res) => {
           .map((item) => ({
             ...item,
             recommendation_score:
-              item.popularity * 0.35 + (categories.has(item.category) ? 45 : 0),
+              item.popularity * 0.35 + (categories.has(item.category) ? 45 : 0)
           }))
           .sort((a, b) => b.recommendation_score - a.recommendation_score)
-          .slice(0, 6),
+          .slice(0, 6)
       });
     }
 
@@ -291,7 +289,7 @@ const server = createServer(async (req, res) => {
           goods_type: input.goods_type,
           title: input.title || `${input.group_name} ${input.goods_type} 분철`,
           source_url: input.source_url || null,
-          shipping_policy: input.shipping_policy || null,
+          shipping_policy: input.shipping_policy || null
         })
         .select()
         .single();
@@ -301,7 +299,7 @@ const server = createServer(async (req, res) => {
           id: randomUUID(),
           project_id: project.id,
           member_name: slot.member_name,
-          price: slot.price,
+          price: slot.price
         }))
       );
       if (slotError) throw slotError;
@@ -317,7 +315,7 @@ const server = createServer(async (req, res) => {
       const parts = url.pathname.split("/");
       const { data, error } = await supabase.rpc("apply_project_slot", {
         target_slot_id: parts[5],
-        target_user_id: customer.userId,
+        target_user_id: customer.userId
       });
       if (error) return send(res, 409, { error: error.message });
       const project = await getOne("projects", parts[3]);
@@ -347,7 +345,7 @@ const server = createServer(async (req, res) => {
           amount: slot.price,
           currency: "KRW",
           provider: "ESCROW_ADAPTER",
-          status: "PAID",
+          status: "PAID"
         })
         .select()
         .single();
@@ -412,7 +410,7 @@ const server = createServer(async (req, res) => {
           seller_id: seller.userId,
           current_participants: 0,
           popularity: 0,
-          status: "ACTIVE",
+          status: "ACTIVE"
         })
         .select()
         .single();
@@ -502,7 +500,7 @@ const server = createServer(async (req, res) => {
           product_id: input.product_id,
           customer_id: customer.userId,
           rating: input.rating,
-          body: input.body,
+          body: input.body
         })
         .select()
         .single();
@@ -532,8 +530,8 @@ const server = createServer(async (req, res) => {
             member,
             {
               rank1: counts?.find((item) => item.member_name === member)?.count || 0,
-              limit: product.member_limit || 20,
-            },
+              limit: product.member_limit || 20
+            }
           ])
         )
       );
@@ -567,7 +565,7 @@ const server = createServer(async (req, res) => {
           product_id: item.product_id,
           title: item.products.title,
           price: item.products.price,
-          picks: item.picks,
+          picks: item.picks
         }))
       );
       if (itemError) throw itemError;
@@ -579,7 +577,7 @@ const server = createServer(async (req, res) => {
           amount: total,
           currency: "KRW",
           provider: "STRIPE_ADAPTER",
-          status: "SUCCEEDED",
+          status: "SUCCEEDED"
         })
         .select()
         .single();
@@ -589,7 +587,7 @@ const server = createServer(async (req, res) => {
           .from("products")
           .update({
             stock: item.products.stock - 1,
-            current_participants: item.products.current_participants + 1,
+            current_participants: item.products.current_participants + 1
           })
           .eq("id", item.product_id);
         if (updateError) throw updateError;
@@ -604,7 +602,7 @@ const server = createServer(async (req, res) => {
           const { error: countError } = await supabase.from("member_selections").upsert({
             product_id: item.product_id,
             member_name: firstPick,
-            count: (current?.count || 0) + 1,
+            count: (current?.count || 0) + 1
           });
           if (countError) throw countError;
         }
@@ -612,7 +610,7 @@ const server = createServer(async (req, res) => {
           order_id: order.id,
           customer_id: customer.userId,
           product_id: item.product_id,
-          category: item.products.category,
+          category: item.products.category
         });
         if (logError) throw logError;
       }
@@ -629,7 +627,7 @@ const server = createServer(async (req, res) => {
       if (error) throw error;
       return send(res, 200, {
         items: data || [],
-        total_units: (data || []).reduce((sum, item) => sum + item.current_participants, 0),
+        total_units: (data || []).reduce((sum, item) => sum + item.current_participants, 0)
       });
     }
 
@@ -650,7 +648,7 @@ const server = createServer(async (req, res) => {
         month: new Date().toISOString().slice(0, 7),
         gross,
         platform_fee: Math.round(gross * 0.1),
-        estimated_payout: Math.round(gross * 0.9),
+        estimated_payout: Math.round(gross * 0.9)
       });
     }
 
@@ -663,7 +661,7 @@ const server = createServer(async (req, res) => {
         items:
           seller.role === "ADMIN"
             ? data || []
-            : (data || []).filter((review) => review.products.seller_id === seller.userId),
+            : (data || []).filter((review) => review.products.seller_id === seller.userId)
       });
     }
 
@@ -677,8 +675,10 @@ const server = createServer(async (req, res) => {
   }
 });
 
-// [핵심 해결 2] Vercel 서버리스 배포용 내보내기
-export default server;
+// [수정 4] Vercel 서버리스 호환 핸들러 내보내기 (module.exports = server 대신 이벤트 루프 바인딩)
+module.exports = async (req, res) => {
+  await server.emit("request", req, res);
+};
 
 if (process.env.NODE_ENV !== "production") {
   server.listen(process.env.PORT || 3000, () =>
