@@ -1,6 +1,10 @@
+// 루트 경로 접속 시 404를 방지하기 위한 응답
 app.get('/', (req, res) => {
-  res.send('Poka-Catch Server Running');
+  res.status(200).send('Poka-Catch Backend Server is Running!');
 });
+
+// Vercel 서버리스 환경을 위한 export
+module.exports = app;
 
 import "dotenv/config";
 import { createServer } from "node:http";
