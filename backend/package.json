@@ -1,0 +1,12 @@
+{
+  "name": "group-buying-api-demo",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": { "start": "node server.js", "dev": "node --watch server.js" },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
+    "dotenv": "^17.2.1"
+  },
+  "engines": { "node": ">=20" }
+}

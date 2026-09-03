@@ -1,0 +1,7 @@
+/* Kept separate so the static demo can be audited independently for RTL behavior. */
+html[dir="rtl"] body { direction: rtl; text-align: right; }
+html[dir="rtl"] input,
+html[dir="rtl"] select { direction: rtl; text-align: right; }
+html[dir="rtl"] .site-header { flex-direction: row-reverse; }
+html[dir="rtl"] .product-image::after { right: auto; left: 18px; }
+html[dir="rtl"] .seller-table { text-align: right; }
