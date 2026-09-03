@@ -1,6 +1,5 @@
 // [수정 1] Vercel 서버리스 환경과의 모듈 호환성을 위해 require 방식으로 통일
 require("dotenv").config();
-const { createServer } = require("node:http");
 const { randomUUID } = require("node:crypto");
 const { createClient } = require("@supabase/supabase-js");
 
@@ -40,7 +39,7 @@ async function parseWithUpstage(url, text) {
 function recommendPrices(total, weights) { const entries = Object.entries(weights || {}); const average = entries.reduce((sum, [, value]) => sum + Number(value), 0) / entries.length; if (!entries.length || !Number.isFinite(total) || total < 0 || average <= 0) throw new Error("INVALID_PRICING_INPUT"); const prices = Object.fromEntries(entries.map(([member, value]) => [member, Math.round(total / entries.length * Number(value) / average / 100) * 100])); const highest = entries.sort(([, a], [, b]) => b - a)[0][0]; prices[highest] += total - Object.values(prices).reduce((sum, value) => sum + value, 0); return prices; }
 async function getOne(table, id) { const { data, error } = await supabase.from(table).select("*").eq("id", id).maybeSingle(); if (error) throw error; return data; }
 
-const server = createServer(async (req, res) => {
+const handler = async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, {});
   const url = new URL(req.url, "http://localhost:3000");
 
@@ -71,8 +70,8 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname.startsWith("/api/v1/members/")) { const productId = url.pathname.split("/").pop(); const { data: product, error } = await supabase.from("products").select("members,member_limit").eq("id", productId).maybeSingle(); if (error) throw error; if (!product) return send(res, 404, { error: "PRODUCT_NOT_FOUND" }); const { data: counts, error: countError } = await supabase.from("member_selections").select("member_name,count").eq("product_id", productId); if (countError) throw countError; return send(res, 200, Object.fromEntries((product.members || []).map((member) => [member, { rank1: counts?.find((item) => item.member_name === member)?.count || 0, limit: product.member_limit || 20 }]))); }
     if (req.method === "POST" && url.pathname === "/api/v1/checkout") { const customer = role(req, res, ["CUSTOMER"]); if (!customer) return; const input = await body(req); const { data: cart, error } = await supabase.from("cart_items").select("*, products(*)").eq("customer_id", customer.userId); if (error) throw error; const selected = input.product_ids ? (cart || []).filter((item) => input.product_ids.includes(item.product_id)) : cart || []; if (!selected.length) return send(res, 400, { error: "EMPTY_CART" }); if (selected.some((item) => item.products.stock < 1)) return send(res, 409, { error: "OUT_OF_STOCK" }); const total = selected.reduce((sum, item) => sum + item.products.price, 0); const { data: order, error: orderError } = await supabase.from("orders").insert({ customer_id: customer.userId, status: "PAID", total }).select().single(); if (orderError) throw orderError; const { error: itemError } = await supabase.from("order_items").insert(selected.map((item) => ({ order_id: order.id, product_id: item.product_id, title: item.products.title, price: item.products.price, picks: item.picks }))); if (itemError) throw itemError; const { data: payment, error: paymentError } = await supabase.from("payments").insert({ order_id: order.id, user_id: customer.userId, amount: total, currency: "KRW", provider: "STRIPE_ADAPTER", status: "SUCCEEDED" }).select().single(); if (paymentError) throw paymentError; for (const item of selected) { const { error: updateError } = await supabase.from("products").update({ stock: item.products.stock - 1, current_participants: item.products.current_participants + 1 }).eq("id", item.product_id); if (updateError) throw updateError; const firstPick = item.picks?.[0]; if (firstPick) { const { data: current } = await supabase.from("member_selections").select("count").eq("product_id", item.product_id).eq("member_name", firstPick).maybeSingle(); const { error: countError } = await supabase.from("member_selections").upsert({ product_id: item.product_id, member_name: firstPick, count: (current?.count || 0) + 1 }); if (countError) throw countError; } const { error: logError } = await supabase.from("purchase_logs").insert({ order_id: order.id, customer_id: customer.userId, product_id: item.product_id, category: item.products.category }); if (logError) throw logError; } await supabase.from("cart_items").delete().eq("customer_id", customer.userId); return send(res, 201, { order: { ...order, payment_id: payment.id } }); }
     if (req.method === "GET" && url.pathname === "/api/v1/seller/analytics/sales") { const seller = role(req, res, ["SELLER", "ADMIN"]); if (!seller) return; let query = supabase.from("products").select("*"); if (seller.role !== "ADMIN") query = query.eq("seller_id", seller.userId); const { data, error } = await query; if (error) throw error; return send(res, 200, { items: data || [], total_units: (data || []).reduce((sum, item) => sum + item.current_participants, 0) }); }
-    if (req.method === "GET" && url.pathname === "/api/v1/seller/payouts/monthly") { const seller = role(req, res, ["SELLER", "ADMIN"]); if (!seller) return; const { data, error } = await supabase.from("payments").select("amount,products!inner(seller_id)").eq("status", "RELEASED"); if (error) throw error; const rows = seller.role === "ADMIN" ? data || [] : (data || []).filter((item) => item.products.seller_id === seller.userId); const gross = rows.reduce((sum, item) => sum + item.amount, 0); return send(res, 200, { month: new Date().toISOString().slice(0, 7), gross, platform_fee: Math.round(gross * .1), estimated_payout: Math.round(gross * .9) }); }
-    if (req.method === "GET" && url.pathname === "/api/v1/seller/reviews") { const seller = role(req, res, ["SELLER", "ADMIN"]); if (!seller) return; const { data, error } = await supabase.from("reviews").select("*, products!inner(seller_id)"); if (error) throw error; return send(res, 200, { items: seller.role === "ADMIN" ? data || [] : (data || []).filter((review) => review.products.seller_id === seller.userId) }); }
+    if (req.method === "GET" && url.pathname === "/api/v1/seller/payouts/monthly") { const seller = role(req, res, ["SELLER", "ADMIN"]); if (!seller) return; let query = supabase.from("payments").select("amount,project_id").eq("status", "RELEASED"); if (seller.role !== "ADMIN") { const { data: projects, error: projectError } = await supabase.from("projects").select("id").eq("leader_id", seller.userId); if (projectError) throw projectError; const projectIds = (projects || []).map((project) => project.id); if (!projectIds.length) return send(res, 200, { month: new Date().toISOString().slice(0, 7), gross: 0, platform_fee: 0, estimated_payout: 0 }); query = query.in("project_id", projectIds); } const { data, error } = await query; if (error) throw error; const gross = (data || []).reduce((sum, item) => sum + item.amount, 0); return send(res, 200, { month: new Date().toISOString().slice(0, 7), gross, platform_fee: Math.round(gross * .1), estimated_payout: Math.round(gross * .9) }); }
+    if (req.method === "GET" && url.pathname === "/api/v1/seller/reviews") { const seller = role(req, res, ["SELLER", "ADMIN"]); if (!seller) return; let query = supabase.from("reviews").select("*"); if (seller.role !== "ADMIN") { const { data: products, error: productError } = await supabase.from("products").select("id").eq("seller_id", seller.userId); if (productError) throw productError; const productIds = (products || []).map((product) => product.id); if (!productIds.length) return send(res, 200, { items: [] }); query = query.in("product_id", productIds); } const { data, error } = await query; if (error) throw error; return send(res, 200, { items: data || [] }); }
     return send(res, 404, { error: "NOT_FOUND" });
   } catch (error) {
     return send(
@@ -81,15 +80,13 @@ const server = createServer(async (req, res) => {
       { error: error.message || "INTERNAL_ERROR" }
     );
   }
-});
-
-// [수정 4] Vercel 서버리스 호환 핸들러 내보내기 (module.exports = server 대신 이벤트 루프 바인딩)
-module.exports = async (req, res) => {
-  await server.emit("request", req, res);
 };
 
-if (process.env.NODE_ENV !== "production") {
-  server.listen(process.env.PORT || 3000, () =>
+module.exports = handler;
+
+if (require.main === module) {
+  const { createServer } = require("node:http");
+  createServer(handler).listen(process.env.PORT || 3000, () =>
     console.log("Group-buying API listening on http://localhost:3000")
   );
 }
