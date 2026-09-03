@@ -5,12 +5,12 @@ const { randomUUID } = require("node:crypto");
 const { createClient } = require("@supabase/supabase-js");
 
 // [수정 2] 환경 변수 추출 (SUPABASE_SERVICE_ROLE_KEY)
-const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("SUPABASE_URL과 SUPABASE_SERVICE_ROLE_KEY 환경 변수가 필요합니다.");
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = process.env;
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error("SUPABASE_URL과 SUPABASE_ANON_KEY 환경 변수가 필요합니다.");
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
