@@ -197,7 +197,23 @@ textarea:focus {
 .login-divider::before,
 .login-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
 .quick-login-form label { display: grid; gap: 5px; font-size: 0.78rem; font-weight: 700; }
+.quick-login-form input { min-width: 0; }
 .login-help { margin: 12px 0 0; color: var(--muted); font-size: 0.72rem; text-align: center; }
+
+.product-card { cursor: pointer; }
+.product-detail { display: grid; grid-template-columns: minmax(180px, 0.8fr) 1.2fr; gap: 20px; padding-top: 20px; }
+.detail-photo { min-height: 230px; display: grid; place-items: center; padding: 20px; border-radius: var(--radius-md); background: linear-gradient(135deg, var(--primary-tint), #e8e0ff); color: var(--primary-hover); font-size: 1.15rem; font-weight: 800; text-align: center; }
+.detail-main { align-self: center; }
+.detail-main h2 { margin: 12px 0 7px; font-size: 1.35rem; line-height: 1.3; }
+.detail-price { display: block; margin: 12px 0 6px; font-size: 1.2rem; }
+.detail-info { grid-column: 1 / -1; display: grid; gap: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.detail-info div { display: grid; grid-template-columns: 140px 1fr; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.detail-info div:last-child { border-bottom: 0; }
+.detail-info dt { color: var(--muted); font-size: 0.82rem; font-weight: 700; }
+.detail-info dd { margin: 0; font-size: 0.88rem; }
+.detail-description { grid-column: 1 / -1; }
+.detail-description h3 { margin-bottom: 7px; font-size: 0.95rem; }
+.detail-description p { color: var(--muted); font-size: 0.88rem; line-height: 1.6; }
 
 .product-grid {
   display: grid;
@@ -423,6 +439,10 @@ dialog::backdrop { background: rgb(51 51 51 / 35%); }
   }
   .hero-banner h1 { font-size: 1.85rem; }
   .hero-banner > p:last-child { font-size: 0.88rem; }
+  .product-detail { grid-template-columns: 1fr; gap: 16px; }
+  .detail-photo { min-height: 180px; }
+  .detail-info,
+  .detail-description { grid-column: auto; }
   .filter-bar,
   .workbench-grid,
   .my-grid,

@@ -29,6 +29,7 @@
           <option value="ar">العربية</option>
           <option value="ja">日本語</option>
           <option value="zh">简体中文</option>
+          <option value="ms">Bahasa Melayu</option>
         </select>
         <button class="icon-button header-icon" type="button" aria-label="알림">🔔</button>
         <button id="login-button" class="button button-secondary" type="button">로그인</button>
@@ -179,7 +180,43 @@
         <label>비밀번호<input name="password" type="password" required minlength="6"></label>
         <button class="button" type="submit">로그인</button>
       </form>
+      <div class="login-divider"><span>회원가입</span></div>
+      <form id="quick-register-form" class="quick-login-form">
+        <label>이름<input name="full_name" type="text" required placeholder="이름"></label>
+        <label>연락처<input name="phone" type="tel" required placeholder="010-0000-0000"></label>
+        <label>아이디 또는 이메일<input name="email" type="text" required placeholder="ID or email"></label>
+        <label>비밀번호<input name="password" type="password" required minlength="6" placeholder="6자 이상"></label>
+        <label>환불계좌<input name="account" type="text" required placeholder="은행명·계좌번호·예금주"></label>
+        <button class="button button-secondary" type="submit">회원가입</button>
+      </form>
       <p class="login-help">소셜 로그인은 OAuth 제공자 설정 후 연결됩니다.</p>
+    </dialog>
+
+    <dialog id="product-detail-dialog" aria-labelledby="product-detail-title">
+      <div class="dialog-heading">
+        <h2 id="product-detail-title">공구 상세</h2>
+        <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
+      </div>
+      <div class="product-detail">
+        <div class="detail-photo" id="detail-photo" role="img" aria-label="상품 사진"></div>
+        <div class="detail-main">
+          <div class="product-meta"><span id="detail-category" class="category-badge"></span><span id="detail-deadline" class="deadline"></span></div>
+          <h2 id="product-detail-title-text"></h2>
+          <p id="detail-tags" class="tags"></p>
+          <strong id="detail-price" class="detail-price"></strong>
+          <p id="detail-progress" class="muted"></p>
+        </div>
+        <dl class="detail-info">
+          <div><dt>구입(예정)처</dt><dd id="detail-source"></dd></div>
+          <div><dt>종료 날짜 및 시각</dt><dd id="detail-end-at"></dd></div>
+          <div><dt>총대 정보</dt><dd id="detail-leader"></dd></div>
+          <div><dt>사진 정보</dt><dd id="detail-photo-info"></dd></div>
+        </dl>
+        <div class="detail-description">
+          <h3>총대 설명</h3>
+          <p id="detail-description-text"></p>
+        </div>
+      </div>
     </dialog>
 
     <template id="product-template">

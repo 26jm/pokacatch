@@ -3,8 +3,10 @@ create extension if not exists pgcrypto;
 create table if not exists users (
   id text primary key, email text not null unique, password_hash text not null,
   role text not null check (role in ('CUSTOMER', 'SELLER', 'ADMIN')),
-  twitter_handle text, created_at timestamptz not null default now()
+  twitter_handle text, full_name text not null, phone text not null, created_at timestamptz not null default now()
 );
+alter table users add column if not exists full_name text;
+alter table users add column if not exists phone text;
 create table if not exists products (
   id text primary key, seller_id text not null references users(id), title text not null,
   category text not null, description text not null, tags jsonb not null default '[]', members jsonb not null default '[]',

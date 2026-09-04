@@ -82,11 +82,12 @@ function updateMemberOptions(productId, memberSelects, memberCounts) {
 
 function productCard(product) {
   const node = byId("product-template").content.cloneNode(true);
+  node.querySelector(".product-card").dataset.productId = product.id;
   const ratio = Math.min(100, Math.round(product.participants / product.min * 100));
   node.querySelector("h3").textContent = product.title;
   node.querySelector(".category-badge").textContent = t(product.category);
   node.querySelector(".deadline").textContent = deadlineText(product.deadline);
-  node.querySelector(".tags").textContent = product.tags.map((tag) => `#${tag}`).join(" ");
+  node.querySelector(".tags").textContent = product.tags.map((tag) => `#${translateDynamicText(tag)}`).join(" ");
   node.querySelector(".price").textContent = money.format(product.price);
   node.querySelector(".progress-copy").textContent = progressText(product.participants, product.min);
   node.querySelector(".progress-track span").style.width = `${ratio}%`;
@@ -113,6 +114,24 @@ function updatePickOptions(memberSelects) {
 }
 
 function isAuthenticated() { return Boolean(state.userId); }
+function openProductDetail(product) {
+  const endAt = new Date(Date.now() + product.deadline * 86400000);
+  byId("detail-category").textContent = t(product.category);
+  byId("detail-deadline").textContent = deadlineText(product.deadline);
+  byId("product-detail-title-text").textContent = translateDynamicText(product.title);
+  byId("detail-tags").textContent = product.tags.map((tag) => `#${translateDynamicText(tag)}`).join(" ");
+  byId("detail-price").textContent = money.format(product.price);
+  byId("detail-progress").textContent = progressText(product.participants, product.min);
+  byId("detail-source").textContent = product.source || "공식 온라인 스토어 (예정)";
+  byId("detail-end-at").textContent = `${endAt.toLocaleDateString("ko-KR")} ${endAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`;
+  byId("detail-leader").textContent = product.leader || "Poka-Catch 인증 총대";
+  byId("detail-photo-info").textContent = product.photoInfo || "총대 등록 상품 사진 · 원본 확인 필요";
+  byId("detail-description-text").textContent = translateDynamicText(product.description || `${product.title} 공동구매 안내입니다. 상품 구성과 배송 일정은 총대의 공지를 확인해 주세요.`);
+  const photo = byId("detail-photo");
+  photo.textContent = t(product.category);
+  photo.setAttribute("aria-label", `${translateDynamicText(product.title)} 상품 사진 정보`);
+  byId("product-detail-dialog").showModal();
+}
 function activateUser(user) {
   state.userId = user.id;
   state.role = user.role;
@@ -237,22 +256,35 @@ function toast(message) {
   setTimeout(() => target.classList.remove("show"), 2200);
 }
 
-const languageMessages = { ko: "언어가 변경되었습니다.", en: "Language changed.", ar: "تم تغيير اللغة.", ja: "言語を変更しました。", zh: "语言已切换。" };
+const languageMessages = { ko: "언어가 변경되었습니다.", en: "Language changed.", ar: "تم تغيير اللغة.", ja: "言語を変更しました。", zh: "语言已切换。", ms: "Bahasa telah ditukar." };
 const translations = {
   en: { "언어 선택": "Language", "고객": "Customer", "판매자": "Seller", "관리자": "Admin", "한국어": "Korean", "둘러보기": "Explore", "공구 관리": "Group Buy", "마이페이지": "My Page", "알림": "Notifications", "장바구니": "Cart", "진행 중인 공고": "Active listings", "검색어": "Search", "에스파, aespa, 카리나 등 한/영 검색": "Search aespa, Karina, Korean or English", "검색": "Search", "공구 작업실": "Group Buy Workspace", "대기 중": "Waiting", "계정·환급 계좌": "Account and payout account", "이메일": "Email", "비밀번호": "Password", "역할": "Role", "참여자": "Participant", "총대": "Organizer", "회원가입": "Sign up", "로그인": "Log in", "환급 계좌": "Payout account", "계좌 저장": "Save account", "공구 개설": "Create group buy", "아이돌": "Artist", "그룹명": "Group name", "굿즈": "Goods", "포토카드": "Photocard", "트위터 핸들": "Twitter handle", "1차 판매처": "Primary retailer", "마감일": "Deadline", "자리와 가격": "Slots and prices", "필요 앨범 수량": "Album quantity", "보증금 안내 후 공구 오픈": "Open after deposit instructions", "문서 AI 처리": "AI document processing", "문서 종류": "Document type", "영수증": "Receipt", "송장": "Waybill", "트위터/X 공고": "X listing", "캡처 텍스트": "Captured text", "Upstage로 구조화": "Structure with Upstage", "아직 처리된 문서가 없습니다.": "No document has been processed yet.", "내 활동": "My Activity", "로그아웃 상태": "Logged out", "내 참여": "My participation", "정산·환불": "Payouts and refunds", "알림·분쟁": "Alerts and disputes", "자리 알림 대기 등록": "Notify me when a slot opens", "현재 주문 분쟁 신고": "Report a dispute", "닫기": "Close", "합계": "Total", "0원 체험 결제": "0 KRW demo pay", "멤버 지망 선택": "Choose member preferences", "선택": "Select", "지망 선택 후 담기": "Choose preferences and add", "SELLER 권한 필요": "SELLER access required", "(체험용)": "(Demo)" },
   ar: { "언어 선택": "اللغة", "고객": "عميل", "판매자": "بائع", "관리자": "مسؤول", "둘러보기": "استكشاف", "공구 관리": "الشراء الجماعي", "마이페이지": "صفحتي", "장바구니": "السلة", "진행 중인 공고": "الإعلانات النشطة", "검색": "بحث", "0원 체험 결제": "دفع تجريبي 0", "(체험용)": "(تجريبي)" },
   ja: { "언어 선택": "言語", "고객": "購入者", "판매자": "販売者", "관리자": "管理者", "둘러보기": "見つける", "공구 관리": "共同購入管理", "마이페이지": "マイページ", "장바구니": "カート", "진행 중인 공고": "受付中の告知", "검색": "検索", "0원 체험 결제": "0円の体験決済", "(체험용)": "(体験用)" },
-  zh: { "언어 선택": "语言", "고객": "客户", "판매자": "卖家", "관리자": "管理员", "둘러보기": "浏览", "공구 관리": "团购管理", "마이페이지": "我的页面", "장바구니": "购物车", "진행 중인 공고": "进行中的公告", "검색": "搜索", "0원 체험 결제": "0元体验支付", "(체험용)": "(体验)" }
+  zh: { "언어 선택": "语言", "고객": "客户", "판매자": "卖家", "관리자": "管理员", "둘러보기": "浏览", "공구 관리": "团购管理", "마이페이지": "我的页面", "장바구니": "购物车", "진행 중인 공고": "进行中的公告", "검색": "搜索", "0원 체험 결제": "0元体验支付", "(체험용)": "(体验)" },
+  ms: { "언어 선택": "Bahasa", "고객": "Pelanggan", "판매자": "Penjual", "관리자": "Pentadbir", "둘러보기": "Terokai", "공구 관리": "Urus pembelian berkumpulan", "마이페이지": "Profil saya", "장바구니": "Troli", "진행 중인 공고": "Penyenaraian aktif", "검색어": "Carian", "검색": "Cari", "회원가입": "Daftar", "로그인": "Log masuk", "장바구니가 비어 있습니다.": "Troli anda kosong.", "0원 체험 결제": "Bayaran demo RM0", "멤버 지망 선택": "Pilih keutamaan ahli", "선택": "Pilih", "지망 선택 후 담기": "Pilih keutamaan dan tambah", "(체험용)": "(Demo)", "포토카드": "Kad foto", "앨범": "Album", "럭키드로우": "Cabutan bertuah", "응원봉": "Kayu lampu", "인형": "Anak patung", "의류": "Pakaian", "액세서리": "Aksesori", "굿즈": "Barangan", "공동구매": "Pembelian berkumpulan" }
 };
 Object.assign(translations.en, { "1지망": "1st choice", "2지망": "2nd choice", "3지망": "3rd choice", "장바구니가 비어 있습니다.": "Your cart is empty.", "누적 참여 수": "Total participants", "진행 중 공동구매": "Active group buys", "상품": "Product", "참여 현황": "Participation", "목표 달성률": "Goal progress", "상태": "Status", "목표 달성": "Goal reached", "모집 중": "Recruiting" });
+Object.assign(translations.ms, { "1지망": "Pilihan pertama", "2지망": "Pilihan kedua", "3지망": "Pilihan ketiga", "누적 참여 수": "Jumlah peserta", "진행 중 공동구매": "Pembelian berkumpulan aktif", "상품": "Produk", "참여 현황": "Penyertaan", "목표 달성률": "Kemajuan sasaran", "상태": "Status", "목표 달성": "Sasaran tercapai", "모집 중": "Sedang dibuka", "언어 변경": "Bahasa", "계정 세션": "Sesi akaun", "계좌 등록됨": "Akaun pembayaran didaftarkan", "공구 작업실": "Ruang kerja pembelian berkumpulan", "대기 중": "Menunggu", "계정·환급 계좌": "Akaun dan akaun bayaran balik", "이메일": "E-mel", "비밀번호": "Kata laluan", "참여자": "Peserta", "총대": "Penganjur", "환급 계좌": "Akaun bayaran balik", "계좌 저장": "Simpan akaun", "공구 개설": "Buka pembelian berkumpulan", "아이돌": "Artis", "그룹명": "Nama kumpulan", "굿즈": "Barangan", "트위터 핸들": "Nama pengguna Twitter", "1차 판매처": "Kedai asal", "마감일": "Tarikh tutup", "자리와 가격": "Slot dan harga", "필요 앨범 수량": "Kuantiti album", "보증금 안내 후 공구 오픈": "Buka selepas arahan deposit", "문서 AI 처리": "Pemprosesan dokumen AI", "문서 종류": "Jenis dokumen", "캡처 텍스트": "Teks ditangkap", "내 활동": "Aktiviti saya", "로그아웃 상태": "Telah log keluar", "내 참여": "Penyertaan saya", "정산·환불": "Bayaran dan bayaran balik", "알림·분쟁": "Makluman dan pertikaian", "자리 알림 대기 등록": "Daftar makluman slot", "현재 주문 분쟁 신고": "Laporkan pertikaian pesanan", "닫기": "Tutup", "합계": "Jumlah", "종료 날짜 및 시각": "Tarikh dan masa tamat", "구입(예정)처": "Kedai pembelian", "총대 정보": "Maklumat penganjur", "사진 정보": "Maklumat foto", "총대 설명": "Penerangan penganjur" });
+const dynamicTranslations = {
+  en: { "포토카드": "Photocard", "앨범": "Album", "럭키드로우": "Lucky draw", "응원봉": "Light stick", "인형": "Doll", "의류": "Clothing", "액세서리": "Accessories", "굿즈": "Merchandise", "공동구매": "Group buy", "공식": "Official", "랜덤": "Random", "세트": "Set", "분철": "Splitting", "키링": "Keyring", "투어": "Tour", "스티커": "Stickers" },
+  ms: { "포토카드": "Kad foto", "앨범": "Album", "럭키드로우": "Cabutan bertuah", "응원봉": "Kayu lampu", "인형": "Anak patung", "의류": "Pakaian", "액세서리": "Aksesori", "굿즈": "Barangan", "공동구매": "Pembelian berkumpulan", "공식": "Rasmi", "랜덤": "Rawak", "세트": "Set", "분철": "Pembahagian", "키링": "Cincin kunci", "투어": "Jelajah", "스티커": "Pelekat" },
+  ja: { "포토카드": "フォトカード", "앨범": "アルバム", "럭키드로우": "ラッキードロー", "응원봉": "ペンライト", "인형": "ぬいぐるみ", "의류": "衣類", "액세서리": "アクセサリー", "굿즈": "グッズ", "공동구매": "共同購入" },
+  zh: { "포토카드": "小卡", "앨범": "专辑", "럭키드로우": "幸运抽奖", "응원봉": "应援棒", "인형": "玩偶", "의류": "服装", "액세서리": "配饰", "굿즈": "周边", "공동구매": "团购" },
+  ar: { "포토카드": "بطاقة صور", "앨범": "ألبوم", "럭키드로우": "سحب محظوظ", "응원봉": "عصا إضاءة", "인형": "دمية", "의류": "ملابس", "액세서리": "إكسسوارات", "굿즈": "منتجات", "공동구매": "شراء جماعي" }
+};
 const sourceText = new WeakMap();
 const sourceAttributes = new WeakMap();
 function t(value) { return translations[state.language]?.[value] || value; }
+function translateDynamicText(value) {
+  return Object.entries(dynamicTranslations[state.language] || {}).reduce((text, [source, target]) => text.split(source).join(target), value);
+}
 function deadlineText(days) {
   if (state.language === "en") return days === 1 ? "Ends today" : `${days} days left`;
   if (state.language === "ar") return days === 1 ? "ينتهي اليوم" : `متبقٍ ${days} أيام`;
   if (state.language === "ja") return days === 1 ? "本日締切" : `あと${days}日`;
   if (state.language === "zh") return days === 1 ? "今日截止" : `剩余${days}天`;
+  if (state.language === "ms") return days === 1 ? "Tamat hari ini" : `${days} hari lagi`;
   return days === 1 ? "오늘 마감" : `${days}일 남음`;
 }
 function progressText(participants, minimum) {
@@ -260,6 +292,7 @@ function progressText(participants, minimum) {
   if (state.language === "ar") return `${participants} مشارك · الهدف ${minimum}`;
   if (state.language === "ja") return `${participants}人参加 · 目標${minimum}人`;
   if (state.language === "zh") return `已参加${participants}人 · 目标${minimum}人`;
+  if (state.language === "ms") return `${participants} peserta · sasaran ${minimum}`;
   return `${participants}명 참여 · 목표 ${minimum}명`;
 }
 function translateNode(node, language) {
@@ -325,11 +358,18 @@ document.addEventListener("click", (event) => {
       toast("5분 동안 자리를 선점했습니다.");
     } else toast("이미 장바구니에 있습니다.");
   }
+  const card = event.target.closest(".product-card");
+  if (card && !event.target.closest("button, select, fieldset, input, label")) {
+    const product = products.find((item) => item.id === card.dataset.productId);
+    if (product) openProductDetail(product);
+  }
   if (event.target.closest("[data-social-login]")) {
     toast("소셜 로그인은 OAuth 제공자 설정 후 사용할 수 있습니다.");
   }
-  if (event.target.closest("[data-close-dialog]")) byId("cart-dialog").close();
-  if (event.target.closest("[data-close-dialog]")) byId("login-dialog").close();
+  if (event.target.closest("[data-close-dialog]")) {
+    const dialog = event.target.closest("dialog");
+    if (dialog?.open) dialog.close();
+  }
 });
 
 async function addToCartViaAPI(productId, picks) {
@@ -497,8 +537,30 @@ async function submitQuickLogin(event) {
     toast(`로그인 실패: ${error.message}`);
   }
 }
+async function submitQuickRegister(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  const account = data.account;
+  delete data.account;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...data, role: "CUSTOMER" }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "회원가입에 실패했습니다.");
+    activateUser(result.user);
+    const accountResponse = await fetch(`${API_BASE_URL}/api/v1/account`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ account }) });
+    if (!accountResponse.ok) throw new Error("환불계좌 저장에 실패했습니다.");
+    byId("login-dialog").close();
+    event.currentTarget.reset();
+    toast("회원가입과 환불계좌 등록이 완료되었습니다.");
+    loadCart();
+    renderActivities();
+  } catch (error) {
+    toast(`회원가입 실패: ${error.message}`);
+  }
+}
 async function openProject(event) {
   event.preventDefault();
+  if (!requireLogin()) return;
   const data = Object.fromEntries(new FormData(event.currentTarget));
   const slots = parseSlots(data.slots);
   if (!slots.length) return setWorkflowStatus("자리를 member:가격 형식으로 입력해 주세요.", true);
@@ -586,6 +648,7 @@ async function processDocument(event) {
 
 document.querySelector("#auth-form")?.addEventListener("submit", submitAuth);
 document.querySelector("#quick-login-form")?.addEventListener("submit", submitQuickLogin);
+document.querySelector("#quick-register-form")?.addEventListener("submit", submitQuickRegister);
 document.querySelector("#open-project-form")?.addEventListener("submit", openProject);
 document.querySelector("#document-form")?.addEventListener("submit", processDocument);
 document.querySelector("[data-action='save-account']")?.addEventListener("click", async () => {
