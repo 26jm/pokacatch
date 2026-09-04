@@ -2,31 +2,25 @@
 
 ## Identity
 
-- Clean, Trustworthy, Modern, Dynamic C2C commerce interface
-- Mobile-first two-column deal feed with K-pop purple accents
+- Market Kurly–style commerce: clean, flat, restrained
+- Single brand color: Soft Lavender
+- Pure white canvas, 1px light borders, 4–6px rounding
 
 ## Tokens
 
 | Token | Value | Use |
 | --- | --- | --- |
-| Primary | `#6C5CE7` | Brand, CTA, progress |
-| Active | `#5B4BC4` | Hover / active |
-| Light | `#A29BFE` | Accent |
-| Background | `#F8F7FF` | Page and input background |
-| Text | `#1F1F24` | Main text |
-| Subtext | `#8E8E93` | Captions |
-| Line | `#E5E5EA` | Borders |
-| Verified | `#00B894` | AI receipt badge |
+| Primary | `#A383E6` | CTA, active tab, brand |
+| Primary Hover | `#8E69DB` | Hover / pressed |
+| Primary Tint | `#F4F0FD` | Selected filter, tag, badge |
+| Text Main | `#333333` | Titles, product names, price |
+| Text Sub | `#777777` | Category, dates, captions |
+| Background | `#FFFFFF` | Page and cards |
+| Bg Secondary | `#F9F9F9` | Search field, section contrast |
+| Border | `#EBEBEB` | Header and card strokes |
 
-## Typography
+## Rules
 
-- Korean: Pretendard, Noto Sans KR, system sans-serif
-- Arabic: Cairo, Noto Sans Arabic, system sans-serif
-- Headline 22px/700; section 18px/700; body 15px/500; caption 12px/400
-
-## Component rules
-
-- Deal card: square thumbnail, verification badge, price, participant progress and deadline.
-- Search: 12px rounded input on light-purple background.
-- Selected preference: 2px primary-purple border plus check mark.
-- Arabic screen: set `lang="ar" dir="rtl"`; avoid left/right-only layout CSS and test directional icons.
+- No 3D, gradients, glass (`backdrop-blur`), or drop shadows
+- Home: search bar + 6-item grid only; other features open from the header
+- Demo listings show an explicit `(체험용)` badge

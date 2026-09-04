@@ -3,29 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="공동구매 플랫폼 바닐라 JavaScript 프로토타입" />
-    <title>PokaCatch | 공동구매</title>
+    <meta name="description" content="K-POP 포토카드 분철 및 공동구매 플랫폼" />
+    <title>Poka-Catch | 공동구매</title>
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./rtl.css" />
     <link rel="stylesheet" href="./design.css" />
     <link rel="stylesheet" href="./member-picker.css" />
   </head>
-  <body>
+  <body data-view="home">
     <header class="site-header">
-      <a class="brand" href="#home" aria-label="PokaCatch 홈">Poka-Catch<span>✦</span></a>
-      <nav aria-label="주요 메뉴">
-        <a href="#home">둘러보기</a>
-        <a href="#workbench">공구 관리</a>
-        <a href="#mypage">마이페이지</a>
-        <a href="#seller">판매자</a>
+      <a class="brand" href="#home" data-view-link="home" aria-label="PokaCatch 홈">Poka-Catch✦</a>
+      <button id="menu-button" class="icon-button header-icon menu-button" type="button" aria-label="메뉴">☰</button>
+      <nav id="primary-nav" aria-label="주요 메뉴">
+        <a href="#home" data-view-link="home">둘러보기</a>
+        <a href="#workbench" data-view-link="workbench">공구 관리</a>
+        <a href="#mypage" data-view-link="mypage">마이페이지</a>
+        <a href="#seller" data-view-link="seller" data-role-nav="SELLER">판매자</a>
+        <a href="#admin" data-view-link="admin" data-role-nav="ADMIN">관리자</a>
       </nav>
       <div class="header-actions">
-        <label class="sr-only" for="role-select">데모 역할</label>
-        <select id="role-select" aria-label="데모 역할 선택">
-          <option value="CUSTOMER">고객</option>
-          <option value="SELLER">판매자</option>
-          <option value="ADMIN">관리자</option>
-        </select>
         <label class="sr-only" for="language-select">언어 선택</label>
         <select id="language-select" aria-label="언어 선택">
           <option value="ko">한국어</option>
@@ -35,55 +31,60 @@
           <option value="zh">简体中文</option>
         </select>
         <button class="icon-button header-icon" type="button" aria-label="알림">🔔</button>
+        <button id="login-button" class="button button-secondary" type="button">로그인</button>
         <button id="cart-button" class="button button-secondary" type="button">장바구니 <span id="cart-count">0</span></button>
       </div>
     </header>
 
-    <main id="home" class="page-shell">
-      <section class="hero">
-        <p class="eyebrow">GROUP BUYING</p>
-        <h1>함께 모여 더 좋은 가격으로.</h1>
+    <main class="page-shell">
+      <section class="hero-banner" aria-labelledby="hero-title">
+        <p class="hero-kicker">GROUP BUYING</p>
+        <h1 id="hero-title">함께 모여 더 좋은 가격으로.</h1>
         <p>안전하게 인증된 공구를 찾아, 최애 멤버 1~3지망을 선택하고 함께 참여하세요.</p>
       </section>
-
-      <section class="panel" aria-labelledby="search-title">
-        <div class="section-heading"><div><p class="eyebrow">SEARCH</p><h2 id="search-title">진행 중인 공동구매</h2></div><span id="result-summary" class="muted"></span></div>
+      <section id="view-home" class="view" data-view-panel="home">
         <form id="search-form" class="filter-bar">
-          <label>검색어<input id="keyword" name="keyword" type="search" placeholder="아티스트명, 앨범명, 멤버 이름 검색" /></label>
-          <label>카테고리<select id="category" name="category"><option value="ALL">전체</option></select></label>
-          <label>정렬<select id="sort-by" name="sort_by"><option value="popular">인기순</option><option value="deadline">마감 임박순</option><option value="price">낮은 가격순</option></select></label>
+          <label>검색어<input id="keyword" name="keyword" type="search" placeholder="에스파, aespa, 카리나 등 한/영 검색" /></label>
           <button class="button" type="submit">검색</button>
         </form>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">GROUP BUY</p>
+            <h2 id="search-title">진행 중인 공고</h2>
+          </div>
+          <span id="result-summary" class="muted"></span>
+        </div>
         <div id="product-grid" class="product-grid" aria-live="polite"></div>
+        <p id="load-status" class="load-status muted" hidden>공고를 더 불러오는 중...</p>
+        <div id="scroll-sentinel" aria-hidden="true"></div>
       </section>
 
-      <section class="panel" aria-labelledby="recommendation-title">
-        <div class="section-heading"><div><p class="eyebrow">FOR YOU</p><h2 id="recommendation-title">맞춤 추천</h2></div><p class="muted">카테고리 선호도 · 인기 · 마감 임박도를 반영합니다.</p></div>
-        <div id="recommendation-grid" class="product-grid"></div>
-      </section>
-
-      <section id="seller" class="panel seller-panel" aria-labelledby="seller-title">
-        <div class="section-heading"><div><p class="eyebrow">SELLER</p><h2 id="seller-title">판매자 대시보드</h2></div><span id="seller-access" class="status"></span></div>
-        <div id="seller-content"></div>
-      </section>
-
-      <section id="workbench" class="panel workflow-panel" aria-labelledby="workflow-title">
-        <div class="section-heading"><div><p class="eyebrow">WORKBENCH</p><h2 id="workflow-title">공구 작업실</h2></div><span id="workflow-status" class="status">대기 중</span></div>
+      <section id="view-workbench" class="view" data-view-panel="workbench" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">WORKBENCH</p>
+            <h2 id="workflow-title">공구 작업실</h2>
+          </div>
+          <span id="workflow-status" class="status">대기 중</span>
+        </div>
         <div class="workbench-grid">
           <form id="auth-form" class="workflow-card">
             <h3>계정·환급 계좌</h3>
             <label>이메일<input name="email" type="email" required placeholder="you@example.com"></label>
             <label>비밀번호<input name="password" type="password" required minlength="6"></label>
-            <label>역할<select name="role"><option value="CUSTOMER">참여자</option><option value="SELLER">총대</option></select></label>
             <button class="button" data-action="register" type="submit">회원가입</button>
             <button class="button button-secondary" data-action="login" type="submit">로그인</button>
-            <div class="account-fields"><label>환급 계좌<input name="account" placeholder="은행·계좌번호"></label><button class="button button-secondary" data-action="save-account" type="button">계좌 저장</button></div>
+            <div class="account-fields">
+              <label>환급 계좌<input name="account" placeholder="은행·계좌번호"></label>
+              <button class="button button-secondary" data-action="save-account" type="button">계좌 저장</button>
+            </div>
           </form>
           <form id="open-project-form" class="workflow-card">
             <h3>공구 개설</h3>
             <label>아이돌<input name="group_name" required placeholder="그룹명"></label>
             <label>굿즈<input name="goods_type" required placeholder="포토카드"></label>
-            <label>1차 판매처<input name="source_url" type="url" placeholder="https://..."></label>
+            <label>트위터 핸들<input name="twitter_handle" placeholder="@handle"></label>
+            <label>1차 판매처<input name="source_url" type="url" placeholder="https://x.com/..."></label>
             <label>마감일<input name="deadline" type="date" required></label>
             <label>자리와 가격<input name="slots" required placeholder="민규:12000, 원우:12000"></label>
             <label>필요 앨범 수량<input name="quantity" type="number" min="1" value="1" required></label>
@@ -91,7 +92,7 @@
           </form>
           <form id="document-form" class="workflow-card">
             <h3>문서 AI 처리</h3>
-            <label>문서 종류<select name="kind"><option value="receipt">영수증</option><option value="waybill">송장</option></select></label>
+            <label>문서 종류<select name="kind"><option value="receipt">영수증</option><option value="waybill">송장</option><option value="notice">트위터/X 공고</option></select></label>
             <label>문서 이미지<input name="image" type="file" accept="image/png,image/jpeg,image/webp,application/pdf"></label>
             <label>캡처 텍스트<textarea name="text" rows="4" placeholder="이미지를 업로드하면 추출된 텍스트가 여기에 표시됩니다."></textarea></label>
             <button class="button" type="submit">Upstage로 구조화</button>
@@ -100,24 +101,112 @@
         </div>
       </section>
 
-      <section id="mypage" class="panel mypage-panel" aria-labelledby="mypage-title">
-        <div class="section-heading"><div><p class="eyebrow">MY PAGE</p><h2 id="mypage-title">내 활동</h2></div><span id="identity-status" class="status">로그아웃 상태</span></div>
-        <div class="my-grid">
-          <div><h3>내 참여</h3><div id="participation-list" class="activity-list"></div></div>
-          <div><h3>정산·환불</h3><div id="settlement-list" class="activity-list"></div></div>
-          <div><h3>알림·분쟁</h3><button class="button button-secondary" data-action="notify">자리 알림 대기 등록</button><button class="button button-danger" data-action="dispute">현재 주문 분쟁 신고</button><div id="notification-list" class="activity-list"></div></div>
+      <section id="view-mypage" class="view" data-view-panel="mypage" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">MY PAGE</p>
+            <h2 id="mypage-title">내 활동</h2>
+          </div>
+          <span id="identity-status" class="status">로그아웃 상태</span>
         </div>
+        <div class="my-grid">
+          <div>
+            <h3>내 참여</h3>
+            <div id="participation-list" class="activity-list"></div>
+          </div>
+          <div>
+            <h3>정산·환불</h3>
+            <div id="settlement-list" class="activity-list"></div>
+          </div>
+          <div>
+            <h3>알림·분쟁</h3>
+            <button class="button button-secondary" data-action="notify">자리 알림 대기 등록</button>
+            <button class="button button-danger" data-action="dispute">현재 주문 분쟁 신고</button>
+            <div id="notification-list" class="activity-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-seller" class="view" data-view-panel="seller" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">SELLER</p>
+            <h2 id="seller-title">판매자 대시보드</h2>
+          </div>
+          <span id="seller-access" class="status"></span>
+        </div>
+        <div id="seller-content"></div>
+      </section>
+
+      <section id="view-admin" class="view" data-view-panel="admin" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ADMIN</p>
+            <h2>관리자 분석·정산</h2>
+          </div>
+          <span id="admin-access" class="status"></span>
+        </div>
+        <div id="admin-content"></div>
       </section>
     </main>
 
     <dialog id="cart-dialog" aria-labelledby="cart-title">
-      <div class="dialog-heading"><h2 id="cart-title">장바구니</h2><button class="icon-button" data-close-dialog aria-label="닫기">×</button></div>
+      <div class="dialog-heading">
+        <h2 id="cart-title">장바구니</h2>
+        <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
+      </div>
       <div id="cart-items"></div>
-      <div class="cart-footer"><strong>합계 <span id="cart-total">₩0</span></strong><button id="checkout-button" class="button" type="button">결제 진행</button></div>
+      <div class="cart-footer">
+        <strong>합계 <span id="cart-total">₩0</span></strong>
+        <button id="checkout-button" class="button" type="button">0원 체험 결제</button>
+      </div>
+    </dialog>
+
+    <dialog id="login-dialog" aria-labelledby="login-title">
+      <div class="dialog-heading">
+        <h2 id="login-title">로그인</h2>
+        <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
+      </div>
+      <div class="social-login-list">
+        <button class="social-login twitter" data-social-login="트위터" type="button">트위터로 로그인</button>
+        <button class="social-login naver" data-social-login="네이버" type="button">네이버로 로그인</button>
+        <button class="social-login kakao" data-social-login="카카오" type="button">카카오로 로그인</button>
+        <button class="social-login google" data-social-login="구글" type="button">구글로 로그인</button>
+      </div>
+      <div class="login-divider"><span>또는 이메일로 로그인</span></div>
+      <form id="quick-login-form" class="quick-login-form">
+        <label>아이디 또는 이메일<input name="email" type="text" required placeholder="ID or email"></label>
+        <label>비밀번호<input name="password" type="password" required minlength="6"></label>
+        <button class="button" type="submit">로그인</button>
+      </form>
+      <p class="login-help">소셜 로그인은 OAuth 제공자 설정 후 연결됩니다.</p>
     </dialog>
 
     <template id="product-template">
-      <article class="product-card"><div class="product-image" aria-hidden="true"></div><div class="product-body"><div class="product-meta"><span class="category-badge"></span><span class="deadline"></span></div><h3></h3><p class="tags"></p><p class="price"></p><div class="progress-copy"></div><div class="progress-track"><span></span></div><fieldset class="member-picker"><legend>멤버 지망 선택</legend><label>1지망<select class="member-select" data-rank="1"><option value="">선택</option></select></label><label>2지망<select class="member-select" data-rank="2"><option value="">선택</option></select></label><label>3지망<select class="member-select" data-rank="3"><option value="">선택</option></select></label></fieldset><button class="button join-button" type="button">지망 선택 후 담기</button></div></article>
+      <article class="product-card">
+        <div class="product-image" aria-hidden="true"></div>
+        <div class="product-body">
+          <div class="product-meta">
+            <span>
+              <span class="category-badge"></span>
+              <span class="demo-badge" hidden>(체험용)</span>
+            </span>
+            <span class="deadline"></span>
+          </div>
+          <h3></h3>
+          <p class="tags"></p>
+          <p class="price"></p>
+          <div class="progress-copy"></div>
+          <div class="progress-track"><span></span></div>
+          <fieldset class="member-picker">
+            <legend>멤버 지망 선택</legend>
+            <label>1지망<select class="member-select" data-rank="1"><option value="">선택</option></select></label>
+            <label>2지망<select class="member-select" data-rank="2"><option value="">선택</option></select></label>
+            <label>3지망<select class="member-select" data-rank="3"><option value="">선택</option></select></label>
+          </fieldset>
+          <button class="button join-button" type="button">지망 선택 후 담기</button>
+        </div>
+      </article>
     </template>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script src="./app.js"></script>
