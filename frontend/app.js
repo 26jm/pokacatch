@@ -362,11 +362,32 @@ function identityHeaders() {
   return { "X-Demo-Role": state.role, "X-Demo-User": state.userId };
 }
 
+// 소셜 로그인 콜백 후 백엔드가 #view?login=success&user_id=..&role=..&token=.. 형태로 리다이렉트한 값을 반영한다.
+function handleOAuthRedirect() {
+  const [viewPart, queryPart] = (location.hash || "").slice(1).split("?");
+  if (!queryPart) return;
+  const params = new URLSearchParams(queryPart);
+  if (params.get("login") === "success") {
+    state.userId = params.get("user_id");
+    state.role = params.get("role") || "CUSTOMER";
+    applyRoleVisibility();
+    byId("login-button").textContent = "로그아웃";
+    toast("소셜 로그인에 성공했습니다.");
+  } else if (params.get("login") === "error") {
+    toast(`소셜 로그인에 실패했습니다: ${params.get("reason") || "알 수 없는 오류"}`);
+  }
+  history.replaceState(null, "", `#${viewPart || "home"}`);
+}
+
 document.addEventListener("click", (event) => {
   const viewLink = event.target.closest("[data-view-link]");
   if (viewLink) {
     event.preventDefault();
     showView(viewLink.dataset.viewLink);
+    if (viewLink.classList.contains("brand")) {
+      byId("keyword").value = "";
+      resetCatalog();
+    }
     return;
   }
   const button = event.target.closest(".join-button");
@@ -395,7 +416,11 @@ document.addEventListener("click", (event) => {
     if (product) openProductDetail(product);
   }
   if (event.target.closest("[data-social-login]")) {
-    toast("소셜 로그인은 OAuth 제공자 설정 후 사용할 수 있습니다.");
+    const button = event.target.closest("[data-social-login]");
+    const provider = { "트위터": "twitter", "네이버": "naver", "카카오": "kakao" }[button.dataset.socialLogin];
+    if (!provider) { toast("해당 소셜 로그인은 아직 준비 중입니다."); return; }
+    window.location.href = `${API_BASE_URL}/api/v1/auth/${provider}/start`;
+    return;
   }
   if (event.target.closest("[data-close-dialog]")) {
     const dialog = event.target.closest("dialog");
@@ -417,6 +442,10 @@ async function addToCartViaAPI(productId, picks) {
 
 byId("search-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  resetCatalog();
+});
+byId("search-reset").addEventListener("click", () => {
+  byId("keyword").value = "";
   resetCatalog();
 });
 byId("login-button").addEventListener("click", () => {
@@ -657,14 +686,14 @@ async function processDocument(event) {
       const response = await fetch(`${API_BASE_URL}/api/v1/ocr/parse`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_base64, kind: data.kind })
+        body: JSON.stringify({ image_base64, kind: data.kind, project_id: data.project_id || null })
       });
       result = await response.json();
       if (!response.ok) {
         const fallback = await fetch(`${API_BASE_URL}/api/v1/documents/parse`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind: data.kind, image })
+          body: JSON.stringify({ kind: data.kind, image, project_id: data.project_id || null })
         });
         result = await fallback.json();
         if (!fallback.ok) throw new Error(result.error || "문서 분석 실패");
@@ -678,7 +707,15 @@ async function processDocument(event) {
       result = await response.json();
       if (!response.ok) throw new Error(result.error || "문서 분석 실패");
     }
+    if (result.kind === "receipt") {
+      resultNode.textContent = JSON.stringify({ kind: "receipt", ...result.receipt_fields, verification: result.verification || "검증할 공구 ID를 입력하면 자동 대조됩니다." }, null, 2);
+      await saveActivity({ type: "notification", message: result.verification ? (result.verification.verified ? "영수증 자동 검증 통과" : "영수증 검증 실패 · 확인 필요") : "영수증 구조화 완료" });
+      renderActivities();
+      setWorkflowStatus(result.verification?.verified === false ? "영수증 검증에 실패했습니다. 내용을 확인해 주세요." : "영수증 구조화가 완료되었습니다.");
+      return;
+    }
     applyOcrFields(result, form);
+
     resultNode.textContent = JSON.stringify({ kind: data.kind, twitter_handle: result.twitter_handle, ...result.parsed_fields, confidence: "검토 필요" }, null, 2);
     await saveActivity({ type: "notification", message: "OCR 구조화 완료 · 그룹/굿즈/핸들을 폼에 반영" });
     renderActivities();
@@ -743,6 +780,7 @@ new IntersectionObserver((entries) => {
 byId("language-select").value = state.language;
 setDocumentLanguage(state.language);
 applyRoleVisibility();
+handleOAuthRedirect();
 showView((location.hash || "#home").slice(1) || "home");
 resetCatalog();
 renderCart();

@@ -12,6 +12,13 @@ alter table users add column if not exists postal_code text;
 alter table users add column if not exists address text;
 alter table users add column if not exists address_detail text;
 alter table users add column if not exists privacy_consented_at timestamptz;
+-- 소셜 로그인(카카오/네이버/트위터) 계정은 비밀번호가 없으므로 관련 컬럼을 nullable로 완화한다.
+alter table users alter column password_hash drop not null;
+alter table users alter column full_name drop not null;
+alter table users alter column phone drop not null;
+alter table users add column if not exists provider text;
+alter table users add column if not exists provider_id text;
+create unique index if not exists users_provider_identity_idx on users (provider, provider_id) where provider is not null;
 create table if not exists products (
   id text primary key, seller_id text not null references users(id), title text not null,
   category text not null, description text not null, tags jsonb not null default '[]', members jsonb not null default '[]',
@@ -87,6 +94,28 @@ begin
   where id = target_slot_id and is_occupied = false returning * into updated_slot;
   if updated_slot.id is null then raise exception 'SLOT_UNAVAILABLE'; end if;
   return updated_slot;
+end; $$;
+
+-- 5분간 결제가 완료되지 않은 선점 슬롯을 자동 해제한다.
+create or replace function release_expired_project_slots()
+returns void language plpgsql security definer as $$
+begin
+  update project_slots set is_occupied = false, participant_id = null, occupied_at = null
+  where is_occupied = true
+    and occupied_at < now() - interval '5 minutes'
+    and not exists (
+      select 1 from payments
+      where payments.slot_id = project_slots.id and payments.status in ('PAID', 'HELD', 'RELEASED')
+    );
+end; $$;
+
+-- 배송 완료(D+7) 후에도 구매자가 수령 확정을 하지 않은 에스크로 대금을 자동으로 정산 확정한다.
+create or replace function release_matured_escrow()
+returns void language plpgsql security definer as $$
+begin
+  update payments set status = 'RELEASED', released_at = now()
+  where status = 'HELD'
+    and project_id in (select project_id from shipments where shipped_at < now() - interval '7 days');
 end; $$;
 
 create index if not exists products_search_idx on products (status, category, popularity desc);

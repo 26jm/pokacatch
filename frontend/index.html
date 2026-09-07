@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="K-POP 포토카드 분철 및 공동구매 플랫폼" />
+    <meta name="keywords" content="포카, 포토카드, 분철, 공동구매, 케이팝, 굿즈, 공구, K-POP, group buying, photocard" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Poka-Catch" />
+    <meta property="og:title" content="Poka-Catch | K-POP 공동구매" />
+    <meta property="og:description" content="안전하게 인증된 K-POP 굿즈·포토카드 공동구매를 찾아 참여하세요." />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Poka-Catch | K-POP 공동구매" />
+    <meta name="twitter:description" content="안전하게 인증된 K-POP 굿즈·포토카드 공동구매를 찾아 참여하세요." />
     <title>Poka-Catch | 공동구매</title>
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./rtl.css" />
@@ -47,6 +55,7 @@
         <form id="search-form" class="filter-bar">
           <label>검색어<input id="keyword" name="keyword" type="search" placeholder="에스파, aespa, 카리나 등 한/영 검색" /></label>
           <button class="button" type="submit">검색</button>
+          <button id="search-reset" class="button button-secondary" type="button">초기화</button>
         </form>
         <div class="section-heading">
           <div>
@@ -99,6 +108,7 @@
           <form id="document-form" class="workflow-card">
             <h3>문서 AI 처리</h3>
             <label>문서 종류<select name="kind"><option value="receipt">영수증</option><option value="waybill">송장</option><option value="notice">트위터/X 공고</option></select></label>
+            <label>검증할 공구 ID (영수증만 해당, 선택)<input name="project_id" placeholder="예: 3f2a1c9e-..."></label>
             <label>문서 이미지<input name="image" type="file" accept="image/png,image/jpeg,image/webp,application/pdf"></label>
             <label>캡처 텍스트<textarea name="text" rows="4" placeholder="이미지를 업로드하면 추출된 텍스트가 여기에 표시됩니다."></textarea></label>
             <button class="button" type="submit">Upstage로 구조화</button>
@@ -155,6 +165,27 @@
         <div id="admin-content"></div>
       </section>
     </main>
+
+    <footer class="site-footer">
+      <div class="footer-legal">
+        <p class="footer-notice">
+          Poka-Catch는 <strong>통신판매중개자</strong>이며 통신판매의 당사자가 아닙니다. 각 공동구매(공구)의 상품 정보, 배송 및 환불 책임은
+          해당 공구를 개설한 총대(판매자)에게 있으며, 관련 거래에 대해 Poka-Catch는 원칙적으로 책임을 지지 않습니다. 다만 통신판매중개자의
+          고지 의무 및 신원정보 확인 의무를 이행하지 않은 경우 관련 법령에 따라 총대와 연대하여 책임을 질 수 있습니다.
+          (전자상거래 등에서의 소비자보호에 관한 법률 제20조·제20조의2)
+        </p>
+        <p class="footer-notice">
+          결제 대금은 배송 완료 확인 또는 확인 후 7일이 경과할 때까지 플랫폼이 보관(에스크로)하며, 구매 확정 또는 자동 확정 이후 총대에게
+          정산됩니다. 결제 관련 분쟁은 <a href="#mypage" data-view-link="mypage">마이페이지 &gt; 알림·분쟁</a> 또는 하단 문의처로 신고할 수
+          있습니다.
+        </p>
+        <p class="footer-business muted">
+          상호: Poka-Catch(포카캐치) · 대표자: 준비 중 · 사업자등록번호: 준비 중 · 통신판매업 신고번호: 준비 중<br />
+          주소: 사업자 주소 등록 예정 · 전화: 고객센터 준비 중 · 이메일: support@poka-catch.example (예시)
+        </p>
+        <p class="footer-copy muted">© 2026 Poka-Catch. All rights reserved.</p>
+      </div>
+    </footer>
 
     <dialog id="cart-dialog" aria-labelledby="cart-title">
       <div class="dialog-heading">

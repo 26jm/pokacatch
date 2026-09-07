@@ -29,6 +29,17 @@ body { background: #fff; }
 .product-image { background: var(--primary-tint); }
 .progress-track span { background: var(--primary); }
 
+.site-footer {
+  border-top: 1px solid var(--line);
+  padding: 24px max(20px, calc((100vw - 1080px) / 2)) 40px;
+  background: var(--canvas-2);
+}
+.footer-legal { max-width: 1080px; margin: 0 auto; display: grid; gap: 8px; }
+.footer-notice { font-size: 12px; line-height: 1.6; color: var(--text-2, #555); }
+.footer-business { font-size: 12px; line-height: 1.6; }
+.footer-copy { font-size: 11px; }
+
+
 .header-actions select {
   min-height: 34px;
   border: 0;
