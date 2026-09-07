@@ -7,6 +7,11 @@ create table if not exists users (
 );
 alter table users add column if not exists full_name text;
 alter table users add column if not exists phone text;
+alter table users add column if not exists birth_date date;
+alter table users add column if not exists postal_code text;
+alter table users add column if not exists address text;
+alter table users add column if not exists address_detail text;
+alter table users add column if not exists privacy_consented_at timestamptz;
 create table if not exists products (
   id text primary key, seller_id text not null references users(id), title text not null,
   category text not null, description text not null, tags jsonb not null default '[]', members jsonb not null default '[]',
@@ -16,8 +21,9 @@ create table if not exists products (
 );
 create table if not exists projects (
   id uuid primary key default gen_random_uuid(), leader_id text not null references users(id), group_name text not null,
-  goods_type text not null, title text not null, source_url text, status text not null default 'RECRUITING', shipping_policy jsonb, created_at timestamptz not null default now()
+  goods_type text not null, title text not null, source_url text, status text not null default 'RECRUITING', shipping_policy jsonb, product_metadata jsonb not null default '{}', created_at timestamptz not null default now()
 );
+alter table projects add column if not exists product_metadata jsonb not null default '{}';
 create table if not exists project_slots (
   id uuid primary key default gen_random_uuid(), project_id uuid not null references projects(id) on delete cascade,
   member_name text not null, price integer not null check (price >= 0), participant_id text references users(id),
@@ -66,6 +72,12 @@ create table if not exists activities (
   type text not null check (type in ('participation', 'settlement', 'notification', 'dispute')),
   title text, message text not null, created_at timestamptz not null default now()
 );
+create table if not exists reports (
+  id uuid primary key default gen_random_uuid(), reporter_id text not null references users(id),
+  subject_type text not null check (subject_type in ('ORDER', 'PROJECT', 'USER')),
+  subject_id text, reason text not null, details text, status text not null default 'OPEN' check (status in ('OPEN', 'REVIEWING', 'RESOLVED', 'REJECTED')),
+  created_at timestamptz not null default now(), resolved_at timestamptz
+);
 
 create or replace function apply_project_slot(target_slot_id uuid, target_user_id text)
 returns project_slots language plpgsql security definer as $$
@@ -94,3 +106,4 @@ alter table reviews enable row level security;
 alter table shipments enable row level security;
 alter table payout_accounts enable row level security;
 alter table activities enable row level security;
+alter table reports enable row level security;

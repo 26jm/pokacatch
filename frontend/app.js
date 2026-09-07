@@ -1,8 +1,12 @@
 const API_BASE_URL = window.__API_BASE_URL__ || (window.location.protocol === "file:" ? "http://localhost:3000" : "");
 const PAGE_SIZE = 6;
 const ALIAS_MAP = {
-  "에스파": ["aespa", "에스파"],
-  aespa: ["aespa", "에스파"],
+  "에스파": ["aespa", "에스파", "애스파", "이스파"],
+  "애스파": ["aespa", "에스파", "애스파", "이스파"],
+  "이스파": ["aespa", "에스파", "애스파", "이스파"],
+  aespa: ["aespa", "에스파", "애스파", "이스파"],
+  "세븐틴": ["seventeen", "세븐틴"],
+  seventeen: ["seventeen", "세븐틴"],
   "카리나": ["karina", "카리나"],
   karina: ["karina", "카리나"],
   "윈터": ["winter", "윈터"],
@@ -27,17 +31,15 @@ const products = [
   { id: "p12", title: "Karina 아크릴 스탠드", category: "굿즈", tags: ["karina", "카리나", "에스파"], price: 16500, participants: 9, min: 15, deadline: 5, popularity: 80, recency: 0.6, demo: true }
 ];
 const state = { cart: [], role: "CUSTOMER", language: "ko", userId: null };
-const DEMO_ACCOUNT = { id: "pokacatch1", email: "pokacatch1", password: "pokacatch1", role: "CUSTOMER" };
-const DEMO_ADMIN_ACCOUNT = { id: "adminpokacatch", email: "adminpokacatch", password: "adminpokacatch", role: "ADMIN" };
 const catalog = { page: 1, items: [], total: 0, loading: false, done: false };
 const money = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const byId = (id) => document.getElementById(id);
 
 function expandSearchTerms(keyword) {
   if (!keyword) return [];
-  const lower = keyword.trim().toLowerCase();
+  const lower = keyword.trim().toLowerCase().replace(/\s+/g, "");
   for (const [key, aliases] of Object.entries(ALIAS_MAP)) {
-    if (key.toLowerCase() === lower) return aliases;
+    if (key.toLowerCase().replace(/\s+/g, "") === lower) return aliases;
   }
   return [keyword.trim()];
 }
@@ -217,7 +219,36 @@ function renderAdmin() {
     byId("admin-content").innerHTML = '<div class="admin-gate"><p class="muted">관리자 계정으로 로그인한 뒤에만 분석 데이터와 정산 관리를 볼 수 있습니다. 직접 URL 접근 시 API는 403을 반환합니다.</p></div>';
     return;
   }
-  byId("admin-content").innerHTML = `<div class="seller-dashboard"><div class="metric"><strong>${products.length}건</strong><span>전체 공고</span></div><div class="metric"><strong>${money.format(products.reduce((sum, p) => sum + p.price * p.participants, 0))}</strong><span>표시 거래액</span></div><div class="metric"><strong>${money.format(0)}</strong><span>실 정산 청구액</span></div></div>`;
+  byId("admin-content").innerHTML = `<div class="seller-dashboard"><div class="metric"><strong>${products.length}건</strong><span>전체 공고</span></div><div class="metric"><strong>${money.format(products.reduce((sum, p) => sum + p.price * p.participants, 0))}</strong><span>표시 거래액</span></div><div class="metric"><strong id="report-count">-</strong><span>접수된 신고</span></div></div><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">REPORTS</p><h3>오류·사기 신고 처리</h3></div></div><div id="report-list" class="activity-list"><p class="muted">신고를 불러오는 중...</p></div></section>`;
+  loadAdminReports();
+}
+async function loadAdminReports() {
+  const list = byId("report-list");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/admin/reports`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "신고 조회 실패");
+    byId("report-count").textContent = `${result.items.length}건`;
+    list.replaceChildren(...(result.items.length ? result.items.map((report) => {
+      const node = document.createElement("article");
+      node.className = "report-item";
+      node.innerHTML = `<div><strong>${report.reason}</strong><p>${report.details || "상세 내용 없음"}</p><span class="muted">${new Date(report.created_at).toLocaleString("ko-KR")} · ${report.status}</span></div><select data-report-id="${report.id}"><option value="OPEN">접수</option><option value="REVIEWING">검토 중</option><option value="RESOLVED">처리 완료</option><option value="REJECTED">반려</option></select>`;
+      node.querySelector("select").value = report.status;
+      return node;
+    }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "접수된 오류 또는 사기 신고가 없습니다." })]));
+  } catch (error) {
+    list.replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: `신고를 불러오지 못했습니다: ${error.message}` }));
+  }
+}
+async function updateReportStatus(select) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/admin/reports/${select.dataset.reportId}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ status: select.value }) });
+    if (!response.ok) throw new Error("상태 변경 실패");
+    toast("신고 처리 상태를 저장했습니다.");
+  } catch (error) {
+    toast(error.message);
+    loadAdminReports();
+  }
 }
 
 function applyRoleVisibility() {
@@ -527,13 +558,6 @@ async function submitQuickLogin(event) {
     loadCart();
     renderActivities();
   } catch (error) {
-    const demoAccount = [DEMO_ACCOUNT, DEMO_ADMIN_ACCOUNT].find((account) => account.email === data.email && account.password === data.password);
-    if (demoAccount) {
-      activateUser(demoAccount);
-      byId("login-dialog").close();
-      toast("데모 계정으로 로그인했습니다.");
-      return;
-    }
     toast(`로그인 실패: ${error.message}`);
   }
 }
@@ -570,8 +594,9 @@ async function openProject(event) {
     source_url: data.source_url || null,
     twitter_handle: data.twitter_handle || null,
     slots,
-    title: `${data.group_name} ${data.goods_type} 공동구매`,
-    shipping_policy: { fixed_fee: 3000, deadline: data.deadline, quantity: Number(data.quantity) }
+    title: data.title,
+    shipping_policy: { fixed_fee: 3000, deadline: data.deadline, quantity: Number(data.quantity) },
+    product_metadata: { release_date: data.release_date || null, image_url: data.image_url || null, description: data.description }
   };
   try {
     const response = await fetch(`${API_BASE_URL}/api/projects`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify(project) });
@@ -589,8 +614,26 @@ function applyOcrFields(result, form) {
   const projectForm = byId("open-project-form");
   if (fields.group_name) projectForm.elements.group_name.value = fields.group_name;
   if (fields.goods_type) projectForm.elements.goods_type.value = fields.goods_type;
+  if (fields.title) projectForm.elements.title.value = fields.title;
+  if (fields.release_date) projectForm.elements.release_date.value = fields.release_date;
+  if (fields.image_url) projectForm.elements.image_url.value = fields.image_url;
+  if (fields.description) projectForm.elements.description.value = fields.description;
   if (result.twitter_handle) projectForm.elements.twitter_handle.value = result.twitter_handle;
   if (result.extracted_text) form.elements.text.value = result.extracted_text;
+}
+async function importProductInfo() {
+  const projectForm = byId("open-project-form");
+  const sourceUrl = projectForm.elements.source_url.value.trim();
+  if (!sourceUrl) return setWorkflowStatus("원구매처 URL을 먼저 입력해 주세요.", true);
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/twitter/parse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: sourceUrl, text: "" }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "판매처 정보 조회 실패");
+    applyOcrFields(result, byId("document-form"));
+    setWorkflowStatus("확인된 판매처 정보를 공구 폼에 반영했습니다. 이미지나 상세 설명은 문서 AI 처리로 보완할 수 있습니다.");
+  } catch (error) {
+    setWorkflowStatus(`판매처 정보를 불러오지 못했습니다: ${error.message}`, true);
+  }
 }
 async function processDocument(event) {
   event.preventDefault();
@@ -651,6 +694,7 @@ document.querySelector("#quick-login-form")?.addEventListener("submit", submitQu
 document.querySelector("#quick-register-form")?.addEventListener("submit", submitQuickRegister);
 document.querySelector("#open-project-form")?.addEventListener("submit", openProject);
 document.querySelector("#document-form")?.addEventListener("submit", processDocument);
+document.querySelector("[data-action='import-product']")?.addEventListener("click", importProductInfo);
 document.querySelector("[data-action='save-account']")?.addEventListener("click", async () => {
   const account = byId("auth-form").elements.account.value.trim();
   if (!account) return;
@@ -665,9 +709,19 @@ document.querySelector("[data-action='notify']")?.addEventListener("click", asyn
   renderActivities();
 });
 document.querySelector("[data-action='dispute']")?.addEventListener("click", async () => {
+  if (!requireLogin()) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ subject_type: "ORDER", reason: "주문 분쟁 신고", details: "사용자가 현재 주문에 대한 검토를 요청했습니다." }) });
+    if (!response.ok) throw new Error("신고 접수 실패");
+  } catch (error) {
+    return setWorkflowStatus(error.message, true);
+  }
   await saveActivity({ type: "dispute", message: "분쟁 신고 접수 · 정산 보류 상태" });
   setWorkflowStatus("분쟁 신고를 접수하고 정산을 보류했습니다.");
   renderActivities();
+});
+document.addEventListener("change", (event) => {
+  if (event.target.matches("select[data-report-id]")) updateReportStatus(event.target);
 });
 async function loadCart() {
   try {

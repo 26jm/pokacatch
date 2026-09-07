@@ -401,6 +401,11 @@ dialog::backdrop { background: rgb(51 51 51 / 35%); }
   border-bottom: 1px solid var(--line);
   font-size: 0.78rem;
 }
+.admin-reports { margin-top: 24px; }
+.admin-reports h3 { margin: 4px 0 0; font-size: 1rem; }
+.report-item { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.report-item p { margin: 5px 0; font-size: 0.85rem; }
+.report-item select { align-self: start; min-width: 92px; padding: 7px; }
 
 .load-status { text-align: center; padding: 16px 0 8px; color: var(--muted); font-size: 0.85rem; }
 
@@ -443,6 +448,7 @@ dialog::backdrop { background: rgb(51 51 51 / 35%); }
   .detail-photo { min-height: 180px; }
   .detail-info,
   .detail-description { grid-column: auto; }
+  .report-item { flex-direction: column; }
   .filter-bar,
   .workbench-grid,
   .my-grid,
