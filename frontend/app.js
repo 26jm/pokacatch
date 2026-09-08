@@ -186,13 +186,14 @@ function renderCart() {
   const items = state.cart
     .map((entry) => ({ product: products.find((item) => item.id === (typeof entry === "string" ? entry : entry.productId)), picks: typeof entry === "string" ? [] : entry.picks }))
     .filter((entry) => entry.product);
+  const total = items.reduce((sum, { product }) => sum + product.price, 0);
   byId("cart-count").textContent = items.length;
-  byId("cart-total").textContent = money.format(0);
+  byId("cart-total").textContent = money.format(total);
   byId("cart-items").replaceChildren(...(items.length ? items.map(({ product, picks }) => {
     const row = document.createElement("div");
     row.className = "cart-row";
     const picksText = product.members && picks.length ? `1지망 ${picks[0]} · 2지망 ${picks[1]} · 3지망 ${picks[2]}` : product.category;
-    row.innerHTML = `<p><strong>${product.title}</strong><br><span class="muted">${picksText}</span><br><span class="muted">${money.format(product.price)} 표시 · 실결제 0원</span></p><strong>${money.format(0)}</strong>`;
+    row.innerHTML = `<p><strong>${product.title}</strong><br><span class="muted">${picksText}</span></p><strong>${money.format(product.price)}</strong>`;
     return row;
   }) : [Object.assign(document.createElement("p"), { textContent: "장바구니가 비어 있습니다.", className: "muted" })]));
 }
@@ -277,7 +278,7 @@ function showView(name) {
   byId("primary-nav").classList.remove("is-open");
   if (name === "seller") renderSeller();
   if (name === "admin") renderAdmin();
-  if (name === "mypage") renderActivities();
+  if (name === "mypage") { renderActivities(); loadProfile(); }
 }
 
 function toast(message) {
@@ -362,23 +363,6 @@ function identityHeaders() {
   return { "X-Demo-Role": state.role, "X-Demo-User": state.userId };
 }
 
-// 소셜 로그인 콜백 후 백엔드가 #view?login=success&user_id=..&role=..&token=.. 형태로 리다이렉트한 값을 반영한다.
-function handleOAuthRedirect() {
-  const [viewPart, queryPart] = (location.hash || "").slice(1).split("?");
-  if (!queryPart) return;
-  const params = new URLSearchParams(queryPart);
-  if (params.get("login") === "success") {
-    state.userId = params.get("user_id");
-    state.role = params.get("role") || "CUSTOMER";
-    applyRoleVisibility();
-    byId("login-button").textContent = "로그아웃";
-    toast("소셜 로그인에 성공했습니다.");
-  } else if (params.get("login") === "error") {
-    toast(`소셜 로그인에 실패했습니다: ${params.get("reason") || "알 수 없는 오류"}`);
-  }
-  history.replaceState(null, "", `#${viewPart || "home"}`);
-}
-
 document.addEventListener("click", (event) => {
   const viewLink = event.target.closest("[data-view-link]");
   if (viewLink) {
@@ -416,11 +400,7 @@ document.addEventListener("click", (event) => {
     if (product) openProductDetail(product);
   }
   if (event.target.closest("[data-social-login]")) {
-    const button = event.target.closest("[data-social-login]");
-    const provider = { "트위터": "twitter", "네이버": "naver", "카카오": "kakao" }[button.dataset.socialLogin];
-    if (!provider) { toast("해당 소셜 로그인은 아직 준비 중입니다."); return; }
-    window.location.href = `${API_BASE_URL}/api/v1/auth/${provider}/start`;
-    return;
+    toast("소셜 로그인은 OAuth 제공자 설정 후 사용할 수 있습니다.");
   }
   if (event.target.closest("[data-close-dialog]")) {
     const dialog = event.target.closest("dialog");
@@ -472,33 +452,21 @@ async function checkout() {
   const productIds = state.cart.map((entry) => typeof entry === "string" ? entry : entry.productId);
   if (!productIds.length) return toast("장바구니가 비어 있습니다.");
   try {
-    const charge = await fetch(`${API_BASE_URL}/api/payments/charge`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...identityHeaders() },
-      body: JSON.stringify({ project_id: productIds[0], slot_id: productIds[0], amount: 0 })
-    });
-    const charged = await charge.json();
-    if (charge.ok && charged.payment?.amount !== 0) throw new Error("실결제 금액이 0원이 아닙니다.");
     const response = await fetch(`${API_BASE_URL}/api/v1/checkout`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...identityHeaders() },
-      body: JSON.stringify({ product_ids: productIds, charge_amount: 0 })
+      body: JSON.stringify({ product_ids: productIds })
     });
     const result = await response.json();
-    if (!response.ok && !charge.ok) throw new Error(result.error || charged.error || "결제에 실패했습니다.");
-    await saveActivity({ type: "settlement", title: "0원 체험 결제 완료", message: `${productIds.length}건 · 실청구 0원` });
+    if (!response.ok) throw new Error(result.error || "결제에 실패했습니다.");
+    await saveActivity({ type: "settlement", title: "에스크로 결제 보류", message: `${productIds.length}건 · 배송 완료 D+7 자동 확정 대기` });
     state.cart = [];
     renderCart();
     renderActivities();
-    toast("체험 결제가 완료되었습니다. 카드 청구는 0원입니다.");
+    toast("결제가 완료되었습니다. 대금은 배송 완료 후 D+7까지 에스크로로 보관됩니다.");
     byId("cart-dialog").close();
   } catch (error) {
-    await saveActivity({ type: "settlement", title: "0원 체험 결제", message: `${productIds.length}건 · 실청구 0원으로 기록` });
-    state.cart = [];
-    renderCart();
-    renderActivities();
-    toast(`체험 결제(0원)로 기록했습니다: ${error.message}`);
-    byId("cart-dialog").close();
+    toast(`결제 실패: ${error.message}`);
   }
 }
 byId("checkout-button").addEventListener("click", checkout);
@@ -580,6 +548,18 @@ async function submitQuickLogin(event) {
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
     const result = await response.json();
+    if (!response.ok && result.error === "ACCOUNT_DELETED_RECOVERABLE") {
+      if (!window.confirm("탈퇴한 계정입니다. 한 달 이내라 복구할 수 있습니다. 계정을 복구하시겠습니까?")) return;
+      const restoreResponse = await fetch(`${API_BASE_URL}/api/v1/auth/restore`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+      const restored = await restoreResponse.json();
+      if (!restoreResponse.ok) throw new Error(restored.error || "계정 복구에 실패했습니다.");
+      activateUser(restored.user);
+      byId("login-dialog").close();
+      toast("계정이 복구되었습니다.");
+      loadCart();
+      renderActivities();
+      return;
+    }
     if (!response.ok) throw new Error(result.error || "인증에 실패했습니다.");
     activateUser(result.user);
     byId("login-dialog").close();
@@ -611,6 +591,56 @@ async function submitQuickRegister(event) {
     toast(`회원가입 실패: ${error.message}`);
   }
 }
+async function loadProfile() {
+  if (!isAuthenticated()) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/account/profile`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "회원정보를 불러오지 못했습니다.");
+    const form = byId("profile-form");
+    Object.entries(result.user).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value || ""; });
+    setProfileLocked(true);
+  } catch (error) {
+    byId("profile-status").textContent = error.message;
+  }
+}
+function setProfileLocked(locked) {
+  const form = byId("profile-form");
+  if (!form) return;
+  [...form.elements].filter((element) => !["current_password", "email"].includes(element.name) && element.id !== "delete-account-button").forEach((element) => { element.disabled = locked; });
+}
+async function updateProfile(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form));
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/account/profile`, { method: "PATCH", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify(data) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "회원정보 수정에 실패했습니다.");
+    form.elements.current_password.value = "";
+    form.elements.new_password.value = "";
+    setProfileLocked(true);
+    byId("profile-status").textContent = "회원정보가 저장되었습니다.";
+    toast("회원정보를 수정했습니다.");
+  } catch (error) {
+    byId("profile-status").textContent = error.message;
+  }
+}
+async function deleteAccount() {
+  if (!requireLogin()) return;
+  const password = byId("profile-form").elements.current_password.value;
+  if (!password) return byId("profile-status").textContent = "탈퇴하려면 현재 비밀번호를 입력해 주세요.";
+  if (!window.confirm("계정을 탈퇴하시겠습니까? 한 달 이내에는 로그인하여 복구할 수 있습니다.")) return;
+  const response = await fetch(`${API_BASE_URL}/api/v1/account`, { method: "DELETE", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ password }) });
+  const result = await response.json();
+  if (!response.ok) return byId("profile-status").textContent = result.error || "회원 탈퇴에 실패했습니다.";
+  state.userId = null;
+  state.role = "CUSTOMER";
+  applyRoleVisibility();
+  byId("login-button").textContent = "로그인";
+  showView("home");
+  toast("탈퇴 처리가 완료되었습니다. 한 달 이내 로그인하면 계정을 복구할 수 있습니다.");
+}
 async function openProject(event) {
   event.preventDefault();
   if (!requireLogin()) return;
@@ -631,8 +661,12 @@ async function openProject(event) {
     const response = await fetch(`${API_BASE_URL}/api/projects`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify(project) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "공구 개설에 실패했습니다.");
-    await saveActivity({ type: "participation", title: `공구 개설: ${project.title}`, message: "보증금 입금 대기" });
-    setWorkflowStatus("보증금 안내를 생성하고 공구를 등록했습니다.");
+    const depositAmount = Math.ceil(slots.reduce((sum, slot) => sum + slot.price, 0) * 0.1);
+    const depositResponse = await fetch(`${API_BASE_URL}/api/projects/${result.project.id}/deposit`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ amount: depositAmount }) });
+    const depositResult = await depositResponse.json();
+    if (!depositResponse.ok) throw new Error(depositResult.error || "보증금 입금에 실패했습니다.");
+    await saveActivity({ type: "participation", title: `공구 개설: ${project.title}`, message: `보증금 ${money.format(depositAmount)} 에스크로 보관` });
+    setWorkflowStatus(`공구 등록과 보증금 ${money.format(depositAmount)} 입금이 완료되었습니다.`);
     renderActivities();
   } catch (error) {
     setWorkflowStatus(`공구를 저장하지 못했습니다: ${error.message}`, true);
@@ -714,6 +748,13 @@ async function processDocument(event) {
       setWorkflowStatus(result.verification?.verified === false ? "영수증 검증에 실패했습니다. 내용을 확인해 주세요." : "영수증 구조화가 완료되었습니다.");
       return;
     }
+    if (result.kind === "waybill") {
+      resultNode.textContent = JSON.stringify(result, null, 2);
+      await saveActivity({ type: "notification", message: result.matching?.matched?.length ? `송장 ${result.matching.matched.length}건 자동 매칭 완료` : "송장 구조화 완료 · 공구 ID를 입력하면 자동 매칭됩니다." });
+      renderActivities();
+      setWorkflowStatus(result.matching?.unmatched?.length ? "일부 송장을 확인 큐에 남겼습니다." : "송장 구조화와 자동 매칭이 완료되었습니다.");
+      return;
+    }
     applyOcrFields(result, form);
 
     resultNode.textContent = JSON.stringify({ kind: data.kind, twitter_handle: result.twitter_handle, ...result.parsed_fields, confidence: "검토 필요" }, null, 2);
@@ -729,6 +770,9 @@ async function processDocument(event) {
 document.querySelector("#auth-form")?.addEventListener("submit", submitAuth);
 document.querySelector("#quick-login-form")?.addEventListener("submit", submitQuickLogin);
 document.querySelector("#quick-register-form")?.addEventListener("submit", submitQuickRegister);
+document.querySelector("#profile-form")?.addEventListener("submit", updateProfile);
+document.querySelector("#delete-account-button")?.addEventListener("click", deleteAccount);
+document.querySelector("#profile-form input[name='current_password']")?.addEventListener("input", (event) => setProfileLocked(event.target.value.length < 6));
 document.querySelector("#open-project-form")?.addEventListener("submit", openProject);
 document.querySelector("#document-form")?.addEventListener("submit", processDocument);
 document.querySelector("[data-action='import-product']")?.addEventListener("click", importProductInfo);
@@ -780,7 +824,6 @@ new IntersectionObserver((entries) => {
 byId("language-select").value = state.language;
 setDocumentLanguage(state.language);
 applyRoleVisibility();
-handleOAuthRedirect();
 showView((location.hash || "#home").slice(1) || "home");
 resetCatalog();
 renderCart();

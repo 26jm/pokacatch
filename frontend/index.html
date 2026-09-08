@@ -140,6 +140,22 @@
             <button class="button button-danger" data-action="dispute">현재 주문 분쟁 신고</button>
             <div id="notification-list" class="activity-list"></div>
           </div>
+          <form id="profile-form" class="workflow-card">
+            <h3>회원정보 수정</h3>
+            <label>아이디(변경 불가)<input name="email" type="email" readonly></label>
+            <label>현재 비밀번호<input name="current_password" type="password" required minlength="6"></label>
+            <label>이름<input name="full_name" type="text" required></label>
+            <label>연락처<input name="phone" type="tel" required></label>
+            <label>트위터 핸들<input name="twitter_handle" type="text" placeholder="@handle"></label>
+            <label>생년월일<input name="birth_date" type="date" required></label>
+            <label>우편번호<input name="postal_code" inputmode="numeric" required></label>
+            <label>기본 배송지<input name="address" type="text" required></label>
+            <label>상세 주소<input name="address_detail" type="text" required></label>
+            <label>새 비밀번호(변경 시에만)<input name="new_password" type="password" minlength="6"></label>
+            <button class="button" type="submit">회원정보 저장</button>
+            <button id="delete-account-button" class="button button-danger" type="button">회원 탈퇴</button>
+            <p id="profile-status" class="muted" role="status"></p>
+          </form>
         </div>
       </section>
 
@@ -195,7 +211,7 @@
       <div id="cart-items"></div>
       <div class="cart-footer">
         <strong>합계 <span id="cart-total">₩0</span></strong>
-        <button id="checkout-button" class="button" type="button">0원 체험 결제</button>
+        <button id="checkout-button" class="button" type="button">에스크로 결제</button>
       </div>
     </dialog>
 
@@ -221,6 +237,7 @@
         <label>이름<input name="full_name" type="text" required placeholder="이름"></label>
         <label>생년월일<input name="birth_date" type="date" required></label>
         <label>연락처<input name="phone" type="tel" required placeholder="010-0000-0000"></label>
+        <label>트위터 핸들<input name="twitter_handle" type="text" placeholder="@handle"></label>
         <label>아이디 또는 이메일<input name="email" type="text" required placeholder="ID or email"></label>
         <label>비밀번호<input name="password" type="password" required minlength="6" placeholder="6자 이상"></label>
         <label>우편번호<input name="postal_code" inputmode="numeric" required placeholder="우편번호"></label>

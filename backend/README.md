@@ -22,21 +22,9 @@ SUPABASE_ANON_KEY=your-anon-key
 UPSTAGE_API_KEY=your-upstage-api-key
 UPSTAGE_MODEL=solar-pro2
 PORT=3000
-OAUTH_STATE_SECRET=change-me-to-a-random-32-byte-string
-FRONTEND_URL=http://localhost:5500
-KAKAO_CLIENT_ID=
-KAKAO_CLIENT_SECRET=
-KAKAO_REDIRECT_URI=http://localhost:3000/api/v1/auth/kakao/callback
-NAVER_CLIENT_ID=
-NAVER_CLIENT_SECRET=
-NAVER_REDIRECT_URI=http://localhost:3000/api/v1/auth/naver/callback
-TWITTER_CLIENT_ID=
-TWITTER_CLIENT_SECRET=
-TWITTER_REDIRECT_URI=http://localhost:3000/api/v1/auth/twitter/callback
 ```
 
 Vercel에서는 프로젝트의 `Settings > Environment Variables`에 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `UPSTAGE_API_KEY`, `UPSTAGE_MODEL`을 등록하고 `Production`, `Preview`, `Development` 환경을 필요한 범위로 선택한 뒤 재배포합니다. Supabase와 Upstage 키는 프런트엔드 변수(`NEXT_PUBLIC_` 또는 `VITE_`)로 만들지 않습니다.
-
 
 현재 서버의 모든 고객, 판매자, 상품, 프로젝트, 슬롯, 장바구니, 주문, 결제, 구매이력, 후기, 배송, 환급계좌, 활동·알림·분쟁 데이터는 Supabase 테이블을 사용합니다. 스키마를 변경한 뒤에는 `supabase-schema.sql` 전체를 다시 실행해야 합니다. 실제 결제 성공을 자동 확정하는 단계는 아직 `STRIPE_ADAPTER` 데모이므로 운영에서는 결제사 웹훅과 DB 트랜잭션을 추가해야 합니다.
 

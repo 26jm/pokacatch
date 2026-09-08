@@ -12,13 +12,8 @@ alter table users add column if not exists postal_code text;
 alter table users add column if not exists address text;
 alter table users add column if not exists address_detail text;
 alter table users add column if not exists privacy_consented_at timestamptz;
--- 소셜 로그인(카카오/네이버/트위터) 계정은 비밀번호가 없으므로 관련 컬럼을 nullable로 완화한다.
-alter table users alter column password_hash drop not null;
-alter table users alter column full_name drop not null;
-alter table users alter column phone drop not null;
-alter table users add column if not exists provider text;
-alter table users add column if not exists provider_id text;
-create unique index if not exists users_provider_identity_idx on users (provider, provider_id) where provider is not null;
+alter table users add column if not exists deletion_requested_at timestamptz;
+alter table users add column if not exists deleted_at timestamptz;
 create table if not exists products (
   id text primary key, seller_id text not null references users(id), title text not null,
   category text not null, description text not null, tags jsonb not null default '[]', members jsonb not null default '[]',
@@ -34,8 +29,10 @@ alter table projects add column if not exists product_metadata jsonb not null de
 create table if not exists project_slots (
   id uuid primary key default gen_random_uuid(), project_id uuid not null references projects(id) on delete cascade,
   member_name text not null, price integer not null check (price >= 0), participant_id text references users(id),
-  is_occupied boolean not null default false, occupied_at timestamptz, created_at timestamptz not null default now()
+  is_occupied boolean not null default false, occupied_at timestamptz, locked_at timestamptz,
+  created_at timestamptz not null default now()
 );
+alter table project_slots add column if not exists locked_at timestamptz;
 create table if not exists cart_items (
   customer_id text not null references users(id) on delete cascade, product_id text not null references products(id),
   picks jsonb not null default '[]', created_at timestamptz not null default now(), primary key (customer_id, product_id)
@@ -52,7 +49,20 @@ create table if not exists payments (
   id uuid primary key default gen_random_uuid(), order_id uuid references orders(id), project_id uuid references projects(id),
   slot_id uuid references project_slots(id), user_id text not null references users(id), amount integer not null check (amount >= 0),
   currency text not null default 'KRW', provider text not null, provider_payment_id text unique, status text not null,
-  created_at timestamptz not null default now(), released_at timestamptz
+  created_at timestamptz not null default now(), released_at timestamptz, escrow_due_at timestamptz
+);
+alter table payments add column if not exists escrow_due_at timestamptz;
+create table if not exists project_deposits (
+  id uuid primary key default gen_random_uuid(), project_id uuid not null unique references projects(id) on delete cascade,
+  leader_id text not null references users(id), amount integer not null check (amount > 0), status text not null default 'PENDING'
+    check (status in ('PENDING', 'HELD', 'FORFEITED', 'REFUNDED')), payment_id uuid references payments(id),
+  created_at timestamptz not null default now(), resolved_at timestamptz
+);
+create table if not exists shipment_assignments (
+  id uuid primary key default gen_random_uuid(), project_id uuid not null references projects(id) on delete cascade,
+  participant_id text references users(id), participant_name text not null, tracking_number text not null,
+  carrier text, confidence numeric, source text not null default 'OCR', created_at timestamptz not null default now(),
+  unique (project_id, participant_id, tracking_number)
 );
 create table if not exists purchase_logs (
   id uuid primary key default gen_random_uuid(), order_id uuid not null references orders(id), customer_id text not null references users(id),
@@ -90,7 +100,7 @@ create or replace function apply_project_slot(target_slot_id uuid, target_user_i
 returns project_slots language plpgsql security definer as $$
 declare updated_slot project_slots;
 begin
-  update project_slots set participant_id = target_user_id, is_occupied = true, occupied_at = now()
+  update project_slots set participant_id = target_user_id, is_occupied = true, occupied_at = now(), locked_at = now()
   where id = target_slot_id and is_occupied = false returning * into updated_slot;
   if updated_slot.id is null then raise exception 'SLOT_UNAVAILABLE'; end if;
   return updated_slot;
@@ -100,9 +110,9 @@ end; $$;
 create or replace function release_expired_project_slots()
 returns void language plpgsql security definer as $$
 begin
-  update project_slots set is_occupied = false, participant_id = null, occupied_at = null
+  update project_slots set is_occupied = false, participant_id = null, occupied_at = null, locked_at = null
   where is_occupied = true
-    and occupied_at < now() - interval '5 minutes'
+    and coalesce(locked_at, occupied_at) < now() - interval '5 minutes'
     and not exists (
       select 1 from payments
       where payments.slot_id = project_slots.id and payments.status in ('PAID', 'HELD', 'RELEASED')
@@ -115,8 +125,13 @@ returns void language plpgsql security definer as $$
 begin
   update payments set status = 'RELEASED', released_at = now()
   where status = 'HELD'
+    and coalesce(escrow_due_at, created_at + interval '7 days') <= now()
     and project_id in (select project_id from shipments where shipped_at < now() - interval '7 days');
 end; $$;
+
+  -- Supabase SQL Editor에서 pg_cron 확장이 허용된 프로젝트에 한해 1분 주기로 실행한다.
+  -- select cron.schedule('release-expired-slots', '* * * * *', $$select release_expired_project_slots()$$);
+  -- select cron.schedule('release-matured-escrow', '*/15 * * * *', $$select release_matured_escrow()$$);
 
 create index if not exists products_search_idx on products (status, category, popularity desc);
 create index if not exists projects_filter_idx on projects (group_name, goods_type, status);
