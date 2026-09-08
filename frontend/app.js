@@ -33,7 +33,7 @@ const products = [
 const SESSION_KEY = "poka-catch-session";
 const LANGUAGE_KEY = "poka-catch-language";
 const state = { cart: [], role: "CUSTOMER", language: localStorage.getItem(LANGUAGE_KEY) || "ko", userId: null, token: null, pendingProject: null };
-const catalog = { page: 1, items: [], total: 0, loading: false, done: false };
+const catalog = { page: 1, items: [], total: 0, demoTotal: 0, loading: false, done: false };
 const money = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const byId = (id) => document.getElementById(id);
 
@@ -241,6 +241,7 @@ function resetCatalog() {
   catalog.page = 1;
   catalog.items = [];
   catalog.done = false;
+  catalog.demoTotal = 0;
   byId("product-grid").replaceChildren();
   loadNextPage();
 }
@@ -257,11 +258,14 @@ async function loadNextPage() {
     const response = await fetch(`${API_BASE_URL}/api/projects?${params}`);
     if (!response.ok) throw new Error("PROJECT_API_UNAVAILABLE");
     const result = await response.json();
-    const next = (result.items || []).map(projectToProduct);
-    catalog.total = result.total || 0;
+    const realItems = (result.items || []).map(projectToProduct);
+    const examples = catalog.page === 1 ? getFilteredProducts() : [];
+    if (catalog.page === 1) catalog.demoTotal = examples.length;
+    const next = [...realItems, ...examples];
+    catalog.total = (result.total || 0) + catalog.demoTotal;
     catalog.items.push(...next);
     byId("product-grid").append(...next.map(productCard));
-    catalog.done = catalog.items.length >= catalog.total || next.length < PAGE_SIZE;
+    catalog.done = catalog.items.length >= catalog.total || realItems.length < PAGE_SIZE;
     catalog.page += 1;
   } catch (error) {
     const filtered = getFilteredProducts();
