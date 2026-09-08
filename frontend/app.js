@@ -30,7 +30,9 @@ const products = [
   { id: "p11", title: "NewJeans 키링 공동구매", category: "액세서리", tags: ["newjeans", "뉴진스", "키링"], price: 8900, participants: 44, min: 50, deadline: 1, popularity: 90, recency: 0.88, demo: true },
   { id: "p12", title: "Karina 아크릴 스탠드", category: "굿즈", tags: ["karina", "카리나", "에스파"], price: 16500, participants: 9, min: 15, deadline: 5, popularity: 80, recency: 0.6, demo: true }
 ];
-const state = { cart: [], role: "CUSTOMER", language: "ko", userId: null };
+const SESSION_KEY = "poka-catch-session";
+const LANGUAGE_KEY = "poka-catch-language";
+const state = { cart: [], role: "CUSTOMER", language: localStorage.getItem(LANGUAGE_KEY) || "ko", userId: null, token: null, pendingProject: null };
 const catalog = { page: 1, items: [], total: 0, loading: false, done: false };
 const money = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const byId = (id) => document.getElementById(id);
@@ -129,15 +131,69 @@ function openProductDetail(product) {
   byId("detail-leader").textContent = product.leader || "Poka-Catch 인증 총대";
   byId("detail-photo-info").textContent = product.photoInfo || "총대 등록 상품 사진 · 원본 확인 필요";
   byId("detail-description-text").textContent = translateDynamicText(product.description || `${product.title} 공동구매 안내입니다. 상품 구성과 배송 일정은 총대의 공지를 확인해 주세요.`);
+  const detailPicker = byId("detail-member-picker");
+  const detailSelects = [...detailPicker.querySelectorAll(".member-select")];
+  detailSelects.forEach((select) => {
+    select.replaceChildren(new Option("선택", ""));
+    (product.members || []).forEach((member) => select.append(new Option(member, member)));
+    select.value = "";
+    select.onchange = () => updatePickOptions(detailSelects);
+  });
+  detailPicker.hidden = !product.members?.length;
+  byId("detail-join-button").dataset.productId = product.id;
   const photo = byId("detail-photo");
   photo.textContent = t(product.category);
   photo.setAttribute("aria-label", `${translateDynamicText(product.title)} 상품 사진 정보`);
   byId("product-detail-dialog").showModal();
 }
-function activateUser(user) {
+function addProductToCart(product, picks) {
+  if (!requireLogin()) return;
+  if (product.members?.length && (picks.some((pick) => !pick) || new Set(picks).size !== picks.length)) {
+    toast("1~3지망 멤버를 서로 다르게 모두 선택해 주세요.");
+    return;
+  }
+  if (product.project_id) {
+    state.pendingProject = { projectId: product.project_id, preferences: picks };
+    byId("shipping-total").textContent = "공구 참여 금액은 선택 자리와 배송비를 기준으로 서버에서 계산합니다.";
+    byId("shipping-dialog").showModal();
+    return;
+  }
+  if (state.cart.some((entry) => (typeof entry === "string" ? entry : entry.productId) === product.id)) {
+    toast("이미 장바구니에 있습니다.");
+    return;
+  }
+  state.cart.push({ productId: product.id, projectId: product.project_id || null, picks, heldUntil: Date.now() + 5 * 60 * 1000 });
+  addToCartViaAPI(product.id, picks, product.project_id || null);
+  saveActivity({ type: "participation", title: product.title, message: "5분 선점 · 신청 정보와 입금 대기" });
+  renderCart();
+  renderActivities();
+  toast("5분 동안 자리를 선점했습니다.");
+}
+function activateUser(user, token) {
   state.userId = user.id;
   state.role = user.role;
+  state.token = token || null;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: state.userId, role: state.role, token: state.token }));
   byId("login-button").textContent = "로그아웃";
+  applyRoleVisibility();
+}
+function restoreSession() {
+  try {
+    const session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    if (!session?.userId || !session?.role) return;
+    state.userId = session.userId;
+    state.role = session.role;
+    state.token = session.token || null;
+    byId("login-button").textContent = "로그아웃";
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+  }
+}
+function clearSession() {
+  state.userId = null;
+  state.role = "CUSTOMER";
+  state.token = null;
+  localStorage.removeItem(SESSION_KEY);
   applyRoleVisibility();
 }
 function requireLogin() {
@@ -155,6 +211,32 @@ function summaryText(count) {
   return `${count}개 공동구매`;
 }
 
+function projectToProduct(project) {
+  const slots = project.slots || [];
+  const occupied = slots.filter((slot) => slot.is_occupied).length;
+  const deadline = project.shipping_policy?.deadline ? Math.max(1, Math.ceil((new Date(project.shipping_policy.deadline).getTime() - Date.now()) / 86400000)) : 7;
+  return {
+    id: project.id,
+    project_id: project.id,
+    title: project.title,
+    category: project.goods_type,
+    tags: [project.group_name],
+    members: slots.map((slot) => slot.member_name),
+    price: slots.length ? Math.min(...slots.map((slot) => slot.price)) : 0,
+    participants: occupied,
+    min: slots.length,
+    deadline,
+    popularity: 0,
+    recency: 1,
+    demo: false,
+    source: project.source_url,
+    description: project.product_metadata?.description,
+    leader: project.leader_id,
+    photoInfo: project.product_metadata?.image_url || "총대 등록 상품 사진",
+    projectSlots: slots
+  };
+}
+
 function resetCatalog() {
   catalog.page = 1;
   catalog.items = [];
@@ -163,23 +245,39 @@ function resetCatalog() {
   loadNextPage();
 }
 
-function loadNextPage() {
+async function loadNextPage() {
   if (document.body.dataset.view !== "home") return;
   if (catalog.loading || catalog.done) return;
   catalog.loading = true;
   byId("load-status").hidden = catalog.page === 1;
-  const filtered = getFilteredProducts();
-  catalog.total = filtered.length;
-  const start = (catalog.page - 1) * PAGE_SIZE;
-  const next = filtered.slice(start, start + PAGE_SIZE);
-  catalog.items.push(...next);
-  byId("product-grid").append(...next.map(productCard));
-  catalog.done = catalog.items.length >= filtered.length;
-  catalog.page += 1;
-  catalog.loading = false;
-  byId("load-status").hidden = true;
-  byId("result-summary").textContent = summaryText(catalog.total);
-  translateDocument(state.language);
+  try {
+    const params = new URLSearchParams({ page: String(catalog.page), limit: String(PAGE_SIZE) });
+    const keyword = byId("keyword").value.trim();
+    if (keyword) params.set("keyword", keyword);
+    const response = await fetch(`${API_BASE_URL}/api/projects?${params}`);
+    if (!response.ok) throw new Error("PROJECT_API_UNAVAILABLE");
+    const result = await response.json();
+    const next = (result.items || []).map(projectToProduct);
+    catalog.total = result.total || 0;
+    catalog.items.push(...next);
+    byId("product-grid").append(...next.map(productCard));
+    catalog.done = catalog.items.length >= catalog.total || next.length < PAGE_SIZE;
+    catalog.page += 1;
+  } catch (error) {
+    const filtered = getFilteredProducts();
+    catalog.total = filtered.length;
+    const start = (catalog.page - 1) * PAGE_SIZE;
+    const next = filtered.slice(start, start + PAGE_SIZE);
+    catalog.items.push(...next);
+    byId("product-grid").append(...next.map(productCard));
+    catalog.done = catalog.items.length >= filtered.length;
+    catalog.page += 1;
+  } finally {
+    catalog.loading = false;
+    byId("load-status").hidden = true;
+    byId("result-summary").textContent = summaryText(catalog.total);
+    translateDocument(state.language);
+  }
 }
 
 function renderCart() {
@@ -209,7 +307,86 @@ function renderSeller() {
     return;
   }
   const active = products.filter((p) => p.participants < p.min);
-  area.innerHTML = `<div class="seller-dashboard"><div class="metric"><strong>${products.reduce((sum, p) => sum + p.participants, 0)}개</strong><span>누적 참여 수</span></div><div class="metric"><strong>${active.length}건</strong><span>진행 중 공동구매</span></div><div class="metric"><strong>${money.format(0)}</strong><span>체험 결제 실청구액</span></div></div><div class="table-wrap"><table class="seller-table"><thead><tr><th>상품</th><th>참여 현황</th><th>목표 달성률</th><th>상태</th></tr></thead><tbody>${products.map((p) => `<tr><td>${p.title}${p.demo ? " (체험용)" : ""}</td><td>${p.participants} / ${p.min}명</td><td>${Math.round(p.participants / p.min * 100)}%</td><td>${p.participants >= p.min ? "목표 달성" : "모집 중"}</td></tr>`).join("")}</tbody></table></div>`;
+  area.innerHTML = `<div class="seller-dashboard"><div class="metric"><strong>${products.reduce((sum, p) => sum + p.participants, 0)}개</strong><span>누적 참여 수</span></div><div class="metric"><strong>${active.length}건</strong><span>진행 중 공동구매</span></div><div class="metric"><strong>${money.format(0)}</strong><span>체험 결제 실청구액</span></div></div><div class="table-wrap"><table class="seller-table"><thead><tr><th>상품</th><th>참여 현황</th><th>목표 달성률</th><th>상태</th></tr></thead><tbody>${products.map((p) => `<tr><td>${p.title}${p.demo ? " (체험용)" : ""}</td><td>${p.participants} / ${p.min}명</td><td>${Math.round(p.participants / p.min * 100)}%</td><td>${p.participants >= p.min ? "목표 달성" : "모집 중"}</td></tr>`).join("")}</tbody></table></div><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">ORDERS</p><h3>주문 취합표</h3></div></div><div id="seller-order-list" class="activity-list"><p class="muted">주문을 불러오는 중...</p></div></section><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">PAYMENTS</p><h3>내 공구 입금 확인</h3></div></div><div id="seller-payment-list" class="activity-list"><p class="muted">입금 대기 건을 불러오는 중...</p></div></section>`;
+  area.insertAdjacentHTML("afterbegin", '<section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">SHIPMENT</p><h3>송장 등록</h3></div></div><form id="seller-shipment-form" class="quick-login-form"><label>공구<select name="project_id" id="seller-project-select" required><option value="">공구를 불러오는 중...</option></select></label><label>택배사<input name="carrier" required placeholder="CJ대한통운"></label><label>송장번호<input name="tracking_number" required></label><button class="button" type="submit">발송 처리</button></form></section>');
+  area.insertAdjacentHTML("afterbegin", '<button id="seller-settle-button" class="button button-secondary" type="button">선택 공구 정산 실행</button>');
+  loadSellerProjects();
+  loadSellerOrders();
+  loadSellerPayments();
+}
+async function loadSellerProjects() {
+  const select = byId("seller-project-select");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/seller/projects`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "공구 조회 실패");
+    select.replaceChildren(new Option("공구를 선택하세요", ""), ...(result.items || []).map((project) => new Option(`${project.title} · ${project.status}`, project.id)));
+  } catch (error) {
+    select.replaceChildren(new Option(`공구 조회 실패: ${error.message}`, ""));
+  }
+}
+async function submitSellerShipment(event) {
+  if (event.target.id !== "seller-shipment-form") return;
+  event.preventDefault();
+  const input = Object.fromEntries(new FormData(event.target));
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/seller/shipments`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify(input) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "발송 처리 실패");
+    toast("송장을 등록하고 참여자 배송 상태를 발송으로 변경했습니다.");
+    renderSeller();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+async function settleSellerProject() {
+  const projectId = byId("seller-project-select")?.value;
+  if (!projectId) return toast("정산할 공구를 선택해 주세요.");
+  if (!window.confirm("모든 참여자의 수령 확인이 완료되었습니까? 정산 후 되돌릴 수 없습니다.")) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/seller/projects/${projectId}/settle`, { method: "POST", headers: { ...identityHeaders() } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "정산 실행 실패");
+    toast("정산을 실행하고 공구를 완료 처리했습니다.");
+    renderSeller();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+async function loadSellerOrders() {
+  const list = byId("seller-order-list");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/seller/orders`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "주문 조회 실패");
+    list.replaceChildren(...(result.items.length ? result.items.map((order) => {
+      const item = order.order_items?.[0] || {};
+      const payment = Array.isArray(order.payments) ? order.payments[0] : order.payments;
+      const shipping = order.shipping_info || {};
+      const node = document.createElement("article");
+      node.className = "report-item";
+      node.innerHTML = `<div><strong>${order.project_title} · ${item.member_name || "멤버 미배정"}</strong><p>${shipping.recipient_name || "받는 분 미입력"} · ${shipping.phone || "연락처 미입력"} · ${shipping.address || "주소 미입력"} ${shipping.address_detail || ""}</p><span class="muted">${money.format(order.total)} · ${payment?.status || order.status} · ${new Date(order.created_at).toLocaleString("ko-KR")}</span></div>`;
+      return node;
+    }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "취합할 주문이 없습니다." })]));
+  } catch (error) {
+    list.replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: `주문을 불러오지 못했습니다: ${error.message}` }));
+  }
+}
+async function loadSellerPayments() {
+  const list = byId("seller-payment-list");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/seller/payments?status=PENDING`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "입금 조회 실패");
+    list.replaceChildren(...(result.items.length ? result.items.map((payment) => {
+      const node = document.createElement("article");
+      node.className = "report-item";
+      node.innerHTML = `<div><strong>${payment.project_title} · ${money.format(payment.amount)}</strong><p>가상계좌 ${payment.virtual_account || "미발급"} · 사용자 ${payment.user_id}</p><span class="muted">${new Date(payment.created_at).toLocaleString("ko-KR")} · ${payment.status}</span></div><button class="button" data-confirm-payment="${payment.id}" type="button">입금 확인</button>`;
+      return node;
+    }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "내 공구의 입금 확인 대기 건이 없습니다." })]));
+  } catch (error) {
+    list.replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: `입금 내역을 불러오지 못했습니다: ${error.message}` }));
+  }
 }
 
 function renderAdmin() {
@@ -220,8 +397,37 @@ function renderAdmin() {
     byId("admin-content").innerHTML = '<div class="admin-gate"><p class="muted">관리자 계정으로 로그인한 뒤에만 분석 데이터와 정산 관리를 볼 수 있습니다. 직접 URL 접근 시 API는 403을 반환합니다.</p></div>';
     return;
   }
-  byId("admin-content").innerHTML = `<div class="seller-dashboard"><div class="metric"><strong>${products.length}건</strong><span>전체 공고</span></div><div class="metric"><strong>${money.format(products.reduce((sum, p) => sum + p.price * p.participants, 0))}</strong><span>표시 거래액</span></div><div class="metric"><strong id="report-count">-</strong><span>접수된 신고</span></div></div><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">REPORTS</p><h3>오류·사기 신고 처리</h3></div></div><div id="report-list" class="activity-list"><p class="muted">신고를 불러오는 중...</p></div></section>`;
+  byId("admin-content").innerHTML = `<div class="seller-dashboard"><div class="metric"><strong>${products.length}건</strong><span>전체 공고</span></div><div class="metric"><strong>${money.format(products.reduce((sum, p) => sum + p.price * p.participants, 0))}</strong><span>표시 거래액</span></div><div class="metric"><strong id="report-count">-</strong><span>접수된 신고</span></div></div><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">PAYMENTS</p><h3>입금 수동 확인</h3></div></div><div id="payment-list" class="activity-list"><p class="muted">입금 대기 건을 불러오는 중...</p></div></section><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">REPORTS</p><h3>오류·사기 신고 처리</h3></div></div><div id="report-list" class="activity-list"><p class="muted">신고를 불러오는 중...</p></div></section>`;
+  loadAdminPayments();
   loadAdminReports();
+}
+async function loadAdminPayments() {
+  const list = byId("payment-list");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/admin/payments?status=PENDING`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "입금 조회 실패");
+    list.replaceChildren(...(result.items.length ? result.items.map((payment) => {
+      const node = document.createElement("article");
+      node.className = "report-item";
+      node.innerHTML = `<div><strong>${money.format(payment.amount)} · ${payment.virtual_account || "가상계좌 미발급"}</strong><p>주문 ${payment.order_id} · 사용자 ${payment.user_id}</p><span class="muted">${new Date(payment.created_at).toLocaleString("ko-KR")} · ${payment.status}</span></div><button class="button" data-confirm-payment="${payment.id}" type="button">입금 확인</button>`;
+      return node;
+    }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "입금 확인 대기 건이 없습니다." })]));
+  } catch (error) {
+    list.replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: `입금 내역을 불러오지 못했습니다: ${error.message}` }));
+  }
+}
+async function confirmPayment(button) {
+  if (!window.confirm("실제 입금을 확인했습니까? 확인 후 주문 상태가 확정됩니다.")) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/payments/${button.dataset.confirmPayment}/confirm`, { method: "POST", headers: { ...identityHeaders() } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "입금 확인 실패");
+    toast("입금을 확인하고 주문 상태를 확정했습니다.");
+    loadAdminPayments();
+  } catch (error) {
+    toast(error.message);
+  }
 }
 async function loadAdminReports() {
   const list = byId("report-list");
@@ -376,23 +582,20 @@ document.addEventListener("click", (event) => {
   }
   const button = event.target.closest(".join-button");
   if (button) {
-    if (!requireLogin()) return;
     const card = button.closest(".product-card");
     const picks = [...card.querySelectorAll(".member-select")].map((select) => select.value);
     const id = button.dataset.productId;
     const product = products.find((item) => item.id === id);
-    if (product.members?.length) {
-      if (picks.some((pick) => !pick)) { toast("1~3지망 멤버를 모두 선택해 주세요."); return; }
-      if (new Set(picks).size !== picks.length) { toast("각 지망은 서로 다른 멤버로 선택해 주세요."); return; }
+    if (product) addProductToCart(product, product.members ? picks : []);
+  }
+  const detailButton = event.target.closest("#detail-join-button");
+  if (detailButton) {
+    const product = products.find((item) => item.id === detailButton.dataset.productId);
+    const picks = [...byId("detail-member-picker").querySelectorAll(".member-select")].map((select) => select.value);
+    if (product) {
+      addProductToCart(product, product.members ? picks : []);
+      if (isAuthenticated()) byId("product-detail-dialog").close();
     }
-    if (!state.cart.some((entry) => (typeof entry === "string" ? entry : entry.productId) === id)) {
-      state.cart.push({ productId: id, picks: product.members ? picks : [], heldUntil: Date.now() + 5 * 60 * 1000 });
-      addToCartViaAPI(id, product.members ? picks : []);
-      saveActivity({ type: "participation", title: product.title, message: "5분 선점 · 신청 정보와 입금 대기" });
-      renderCart();
-      renderActivities();
-      toast("5분 동안 자리를 선점했습니다.");
-    } else toast("이미 장바구니에 있습니다.");
   }
   const card = event.target.closest(".product-card");
   if (card && !event.target.closest("button, select, fieldset, input, label")) {
@@ -405,15 +608,16 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("[data-close-dialog]")) {
     const dialog = event.target.closest("dialog");
     if (dialog?.open) dialog.close();
+    if (dialog?.id === "shipping-dialog") state.pendingProject = null;
   }
 });
 
-async function addToCartViaAPI(productId, picks) {
+async function addToCartViaAPI(productId, picks, projectId) {
   try {
     await fetch(`${API_BASE_URL}/api/v1/cart/items`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...identityHeaders() },
-      body: JSON.stringify({ product_id: productId, picks })
+      body: JSON.stringify({ product_id: productId, project_id: projectId, picks })
     });
   } catch (error) {
     console.warn("장바구니 API 추가 실패:", error);
@@ -430,9 +634,7 @@ byId("search-reset").addEventListener("click", () => {
 });
 byId("login-button").addEventListener("click", () => {
   if (isAuthenticated()) {
-    state.userId = null;
-    state.role = "CUSTOMER";
-    applyRoleVisibility();
+    clearSession();
     state.cart = [];
     renderCart();
     byId("login-button").textContent = "로그인";
@@ -449,29 +651,80 @@ byId("cart-button").addEventListener("click", () => {
 byId("menu-button").addEventListener("click", () => byId("primary-nav").classList.toggle("is-open"));
 
 async function checkout() {
+  if (!state.cart.length) return toast("장바구니가 비어 있습니다.");
+  byId("shipping-total").textContent = `입금 예정 금액: ${byId("cart-total").textContent} · 서버에서 최종 금액을 다시 확인합니다.`;
+  byId("shipping-dialog").showModal();
+}
+async function submitCheckout(event) {
+  event.preventDefault();
   const productIds = state.cart.map((entry) => typeof entry === "string" ? entry : entry.productId);
-  if (!productIds.length) return toast("장바구니가 비어 있습니다.");
+  const shipping = Object.fromEntries(new FormData(event.currentTarget));
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/checkout`, {
+    const projectRequest = state.pendingProject ? {
+      url: `${API_BASE_URL}/api/projects/${state.pendingProject.projectId}/participate`,
+      body: { preferences: state.pendingProject.preferences, shipping }
+    } : {
+      url: `${API_BASE_URL}/api/v1/checkout-with-shipping`,
+      body: { product_ids: productIds, shipping }
+    };
+    const response = await fetch(projectRequest.url, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...identityHeaders() },
-      body: JSON.stringify({ product_ids: productIds })
+      body: JSON.stringify(projectRequest.body)
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "결제에 실패했습니다.");
-    await saveActivity({ type: "settlement", title: "에스크로 결제 보류", message: `${productIds.length}건 · 배송 완료 D+7 자동 확정 대기` });
-    state.cart = [];
+    await saveActivity({ type: "settlement", title: "입금 대기 신청", message: `${state.pendingProject ? "공구 자리 신청" : `${productIds.length}건`} · 배송 완료 D+7 자동 확정 대기` });
+    state.cart = state.pendingProject ? state.cart : [];
+    state.pendingProject = null;
     renderCart();
     renderActivities();
-    toast("결제가 완료되었습니다. 대금은 배송 완료 후 D+7까지 에스크로로 보관됩니다.");
+    byId("shipping-dialog").close();
     byId("cart-dialog").close();
+    const payment = result.payment;
+    renderPaymentResult(payment);
+    byId("payment-dialog").showModal();
   } catch (error) {
     toast(`결제 실패: ${error.message}`);
   }
 }
+function renderPaymentResult(payment) {
+  const completed = ["PAID", "HELD", "RELEASED"].includes(payment.status);
+  byId("payment-result").innerHTML = `<p><strong>${completed ? "입금이 확인되었습니다." : "신청이 완료되었습니다."}</strong></p><p>입금 상태: ${completed ? "입금 완료" : "입금 대기"}</p><p>입금 금액: ${money.format(payment.amount)}</p><p>은행: ${payment.virtual_account_bank}</p><p>가상계좌: <strong>${payment.virtual_account}</strong></p><p class="muted">${completed ? "자리가 확정되었습니다." : "입금 확인 후 자리가 확정됩니다. 입금자명은 일치하지 않아도 됩니다."}</p>`;
+  byId("refresh-payment-button").hidden = completed;
+  byId("refresh-payment-button").dataset.paymentId = payment.id;
+}
+async function refreshPaymentStatus() {
+  const paymentId = byId("refresh-payment-button").dataset.paymentId;
+  if (!paymentId) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/payments/${paymentId}`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "입금 상태를 확인하지 못했습니다.");
+    renderPaymentResult(result.payment);
+    toast(result.payment.status === "PENDING" ? "아직 입금 대기 중입니다." : "입금 상태를 갱신했습니다.");
+  } catch (error) {
+    toast(error.message);
+  }
+}
+async function confirmReceipt(button) {
+  if (!window.confirm("상품을 수령했습니까? 수령 확인 후 총대 정산이 가능해집니다.")) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/customer/orders/${button.dataset.confirmReceipt}/confirm-receipt`, { method: "POST", headers: { ...identityHeaders() } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "수령 확인 실패");
+    toast("수령 확인이 완료되었습니다.");
+    renderActivities();
+  } catch (error) {
+    toast(error.message);
+  }
+}
 byId("checkout-button").addEventListener("click", checkout);
+byId("shipping-form").addEventListener("submit", submitCheckout);
+byId("refresh-payment-button").addEventListener("click", refreshPaymentStatus);
 byId("language-select").addEventListener("change", (event) => {
   state.language = event.target.value;
+  localStorage.setItem(LANGUAGE_KEY, state.language);
   setDocumentLanguage(state.language);
   resetCatalog();
   renderCart();
@@ -491,6 +744,38 @@ async function saveActivity(value) {
     console.warn("Supabase 활동 기록 실패:", error);
   }
 }
+async function loadPurchaseHistory() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/customer/purchase-history`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "참여 내역 조회 실패");
+    const list = byId("participation-list");
+    const timeline = byId("participation-timeline");
+    const items = (result.items || []).map((order) => {
+      const payment = Array.isArray(order.payments) ? order.payments[0] : order.payments;
+      const status = payment?.status === "PENDING" ? "입금 대기" : ["PAID", "HELD"].includes(payment?.status) ? "입금 완료" : payment?.status === "RELEASED" ? "정산 완료" : order.status;
+      const title = order.order_items?.[0]?.title || "공구 신청";
+      return `${title} · ${status} · ${money.format(order.total)} · ${new Date(order.created_at).toLocaleString("ko-KR")}`;
+    });
+    list.replaceChildren(...(items.length
+      ? items.map((item) => Object.assign(document.createElement("p"), { className: "activity-item", textContent: item }))
+      : [Object.assign(document.createElement("p"), { className: "muted", textContent: "참여한 공구가 없습니다." })]));
+    const stages = ["모집", "입금", "구매", "개봉·배정", "발송", "수령", "정산"];
+    timeline.replaceChildren(...(result.items || []).map((order) => {
+      const payment = Array.isArray(order.payments) ? order.payments[0] : order.payments;
+      const paymentComplete = ["PAID", "HELD", "RELEASED"].includes(payment?.status);
+      const statusIndex = order.status === "PAYMENT_PENDING" && !paymentComplete ? 1 : order.status === "PAYMENT_CONFIRMED" ? 2 : order.status === "SHIPPED" ? 4 : order.status === "RECEIVED" ? 5 : order.status === "SETTLED" ? 6 : 1;
+      const card = document.createElement("article");
+      card.className = "report-item";
+      const title = order.order_items?.[0]?.title || "공구 신청";
+      const steps = stages.map((stage, index) => `<span class="status${index < statusIndex ? "" : index === statusIndex ? " active" : " pending"}">${stage}</span>`).join(" → ");
+      card.innerHTML = `<strong>${title}</strong><p class="timeline-steps">${steps}</p><span class="muted">현재 상태: ${order.status === "RECEIVED" ? "수령 확인" : order.status === "SETTLED" ? "정산 완료" : paymentComplete ? "입금 완료" : "입금 대기"}</span>${order.status === "SHIPPED" ? `<button class="button" data-confirm-receipt="${order.id}" type="button">수령 확인</button>` : ""}`;
+      return card;
+    }));
+  } catch (error) {
+    console.warn("구매·참여 내역 조회 실패:", error);
+  }
+}
 async function renderActivities() {
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/activity`, { headers: identityHeaders() });
@@ -502,6 +787,7 @@ async function renderActivities() {
     render("settlement-list", result.items.filter((item) => item.type === "settlement"), "정산·환불 내역이 없습니다.");
     render("notification-list", result.items.filter((item) => item.type === "notification" || item.type === "dispute"), "새 알림이 없습니다.");
     byId("identity-status").textContent = result.account ? `계좌 등록됨 · ${state.role}` : `계정 세션 · ${state.role}`;
+    loadPurchaseHistory();
   } catch (error) {
     console.warn("Supabase 활동 조회 실패:", error);
   }
@@ -528,10 +814,7 @@ async function submitAuth(event) {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "인증에 실패했습니다.");
-    state.userId = result.user.id;
-    state.role = result.user.role;
-    byId("login-button").textContent = "로그아웃";
-    applyRoleVisibility();
+    activateUser(result.user, result.token);
     setWorkflowStatus(action === "register" ? "회원가입이 완료되었습니다." : "로그인했습니다.");
     renderSeller();
     renderAdmin();
@@ -553,7 +836,7 @@ async function submitQuickLogin(event) {
       const restoreResponse = await fetch(`${API_BASE_URL}/api/v1/auth/restore`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
       const restored = await restoreResponse.json();
       if (!restoreResponse.ok) throw new Error(restored.error || "계정 복구에 실패했습니다.");
-      activateUser(restored.user);
+      activateUser(restored.user, restored.token);
       byId("login-dialog").close();
       toast("계정이 복구되었습니다.");
       loadCart();
@@ -561,7 +844,7 @@ async function submitQuickLogin(event) {
       return;
     }
     if (!response.ok) throw new Error(result.error || "인증에 실패했습니다.");
-    activateUser(result.user);
+    activateUser(result.user, result.token);
     byId("login-dialog").close();
     toast("로그인했습니다.");
     loadCart();
@@ -579,7 +862,7 @@ async function submitQuickRegister(event) {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...data, role: "CUSTOMER" }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "회원가입에 실패했습니다.");
-    activateUser(result.user);
+    activateUser(result.user, result.token);
     const accountResponse = await fetch(`${API_BASE_URL}/api/v1/account`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ account }) });
     if (!accountResponse.ok) throw new Error("환불계좌 저장에 실패했습니다.");
     byId("login-dialog").close();
@@ -634,9 +917,7 @@ async function deleteAccount() {
   const response = await fetch(`${API_BASE_URL}/api/v1/account`, { method: "DELETE", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ password }) });
   const result = await response.json();
   if (!response.ok) return byId("profile-status").textContent = result.error || "회원 탈퇴에 실패했습니다.";
-  state.userId = null;
-  state.role = "CUSTOMER";
-  applyRoleVisibility();
+  clearSession();
   byId("login-button").textContent = "로그인";
   showView("home");
   toast("탈퇴 처리가 완료되었습니다. 한 달 이내 로그인하면 계정을 복구할 수 있습니다.");
@@ -775,6 +1056,7 @@ document.querySelector("#delete-account-button")?.addEventListener("click", dele
 document.querySelector("#profile-form input[name='current_password']")?.addEventListener("input", (event) => setProfileLocked(event.target.value.length < 6));
 document.querySelector("#open-project-form")?.addEventListener("submit", openProject);
 document.querySelector("#document-form")?.addEventListener("submit", processDocument);
+document.addEventListener("submit", submitSellerShipment);
 document.querySelector("[data-action='import-product']")?.addEventListener("click", importProductInfo);
 document.querySelector("[data-action='save-account']")?.addEventListener("click", async () => {
   const account = byId("auth-form").elements.account.value.trim();
@@ -804,12 +1086,19 @@ document.querySelector("[data-action='dispute']")?.addEventListener("click", asy
 document.addEventListener("change", (event) => {
   if (event.target.matches("select[data-report-id]")) updateReportStatus(event.target);
 });
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-confirm-payment]");
+  if (button) confirmPayment(button);
+  const receiptButton = event.target.closest("[data-confirm-receipt]");
+  if (receiptButton) confirmReceipt(receiptButton);
+  if (event.target.closest("#seller-settle-button")) settleSellerProject();
+});
 async function loadCart() {
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/cart`, { headers: identityHeaders() });
     const result = await response.json();
     if (response.ok) {
-      state.cart = (result.items || []).map((item) => ({ productId: item.product.id, picks: item.picks || [] }));
+      state.cart = (result.items || []).map((item) => ({ productId: item.product.id, projectId: item.project_id || null, picks: item.picks || [] }));
       renderCart();
     }
   } catch (error) {
@@ -821,6 +1110,7 @@ new IntersectionObserver((entries) => {
   if (entries.some((entry) => entry.isIntersecting)) loadNextPage();
 }, { rootMargin: "240px" }).observe(byId("scroll-sentinel"));
 
+restoreSession();
 byId("language-select").value = state.language;
 setDocumentLanguage(state.language);
 applyRoleVisibility();

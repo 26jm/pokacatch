@@ -129,6 +129,7 @@
           <div>
             <h3>내 참여</h3>
             <div id="participation-list" class="activity-list"></div>
+            <div id="participation-timeline" class="activity-list"></div>
           </div>
           <div>
             <h3>정산·환불</h3>
@@ -215,6 +216,33 @@
       </div>
     </dialog>
 
+    <dialog id="shipping-dialog" aria-labelledby="shipping-title">
+      <div class="dialog-heading">
+        <h2 id="shipping-title">신청·배송정보</h2>
+        <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
+      </div>
+      <form id="shipping-form" class="quick-login-form">
+        <label>받는 분<input name="recipient_name" type="text" required></label>
+        <label>연락처<input name="phone" type="tel" required placeholder="010-0000-0000"></label>
+        <label>우편번호<input name="postal_code" inputmode="numeric" required></label>
+        <label>주소<input name="address" type="text" required></label>
+        <label>상세 주소<input name="address_detail" type="text" required></label>
+        <label>배송 요청사항<input name="request" type="text" maxlength="100"></label>
+        <p id="shipping-total" class="muted"></p>
+        <button class="button" type="submit">신청하고 입금 안내 보기</button>
+      </form>
+    </dialog>
+
+    <dialog id="payment-dialog" aria-labelledby="payment-title">
+      <div class="dialog-heading">
+        <h2 id="payment-title">입금 안내</h2>
+        <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
+      </div>
+      <div id="payment-result" class="activity-list"></div>
+      <button id="refresh-payment-button" class="button" type="button">입금 상태 확인</button>
+      <button class="button button-secondary" data-close-dialog type="button">확인</button>
+    </dialog>
+
     <dialog id="login-dialog" aria-labelledby="login-title">
       <div class="dialog-heading">
         <h2 id="login-title">로그인</h2>
@@ -274,6 +302,13 @@
           <h3>총대 설명</h3>
           <p id="detail-description-text"></p>
         </div>
+        <fieldset id="detail-member-picker" class="member-picker" hidden>
+          <legend>멤버 지망 선택</legend>
+          <label>1지망<select class="member-select" data-rank="1"><option value="">선택</option></select></label>
+          <label>2지망<select class="member-select" data-rank="2"><option value="">선택</option></select></label>
+          <label>3지망<select class="member-select" data-rank="3"><option value="">선택</option></select></label>
+        </fieldset>
+        <button id="detail-join-button" class="button" type="button">지망 선택 후 담기</button>
       </div>
     </dialog>
 

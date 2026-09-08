@@ -1,4 +1,4 @@
-create extension if not exists pgcrypto;
+ create extension if not exists pgcrypto;
 
 create table if not exists users (
   id text primary key, email text not null unique, password_hash text not null,
@@ -34,24 +34,35 @@ create table if not exists project_slots (
 );
 alter table project_slots add column if not exists locked_at timestamptz;
 create table if not exists cart_items (
-  customer_id text not null references users(id) on delete cascade, product_id text not null references products(id),
+  customer_id text not null references users(id) on delete cascade, product_id text not null references products(id), project_id uuid references projects(id),
   picks jsonb not null default '[]', created_at timestamptz not null default now(), primary key (customer_id, product_id)
 );
+alter table cart_items add column if not exists project_id uuid references projects(id);
 create table if not exists orders (
-  id uuid primary key default gen_random_uuid(), customer_id text not null references users(id), status text not null,
-  total integer not null check (total >= 0), created_at timestamptz not null default now()
+  id uuid primary key default gen_random_uuid(), customer_id text not null references users(id), project_id uuid references projects(id), status text not null,
+  total integer not null check (total >= 0), shipping_info jsonb not null default '{}', created_at timestamptz not null default now()
 );
+alter table orders add column if not exists project_id uuid references projects(id);
+alter table orders add column if not exists shipping_info jsonb not null default '{}';
 create table if not exists order_items (
   id uuid primary key default gen_random_uuid(), order_id uuid not null references orders(id) on delete cascade,
   product_id text not null references products(id), title text not null, price integer not null, picks jsonb not null default '[]'
 );
+alter table order_items alter column product_id drop not null;
+alter table order_items add column if not exists project_id uuid references projects(id);
+alter table order_items add column if not exists slot_id uuid references project_slots(id);
+alter table order_items add column if not exists member_name text;
 create table if not exists payments (
   id uuid primary key default gen_random_uuid(), order_id uuid references orders(id), project_id uuid references projects(id),
   slot_id uuid references project_slots(id), user_id text not null references users(id), amount integer not null check (amount >= 0),
   currency text not null default 'KRW', provider text not null, provider_payment_id text unique, status text not null,
+  virtual_account_bank text, virtual_account text, payment_due_at timestamptz,
   created_at timestamptz not null default now(), released_at timestamptz, escrow_due_at timestamptz
 );
 alter table payments add column if not exists escrow_due_at timestamptz;
+alter table payments add column if not exists virtual_account_bank text;
+alter table payments add column if not exists virtual_account text;
+alter table payments add column if not exists payment_due_at timestamptz;
 create table if not exists project_deposits (
   id uuid primary key default gen_random_uuid(), project_id uuid not null unique references projects(id) on delete cascade,
   leader_id text not null references users(id), amount integer not null check (amount > 0), status text not null default 'PENDING'
