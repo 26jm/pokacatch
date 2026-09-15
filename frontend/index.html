@@ -109,11 +109,19 @@
           <form id="document-form" class="workflow-card">
             <h3>문서 AI 처리</h3>
             <label>문서 종류<select name="kind"><option value="receipt">영수증</option><option value="waybill">송장</option><option value="notice">트위터/X 공고</option></select></label>
-            <label>검증할 공구 ID (영수증만 해당, 선택)<input name="project_id" placeholder="예: 3f2a1c9e-..."></label>
+            <label>검증할 공구 ID (영수증은 필수)<input name="project_id" placeholder="예: 3f2a1c9e-..."></label>
             <label>문서 이미지<input name="image" type="file" accept="image/png,image/jpeg,image/webp,application/pdf"></label>
             <label>캡처 텍스트<textarea name="text" rows="4" placeholder="이미지를 업로드하면 추출된 텍스트가 여기에 표시됩니다."></textarea></label>
             <button class="button" type="submit">Upstage로 구조화</button>
             <pre id="document-result" class="document-result">아직 처리된 문서가 없습니다.</pre>
+          </form>
+          <form id="receipt-explanation-form" class="workflow-card" hidden>
+            <h3>영수증 검증 소명</h3>
+            <input name="receipt_id" type="hidden">
+            <p id="receipt-explanation-deadline" class="muted"></p>
+            <label>소명 내용<textarea name="explanation" rows="4" minlength="10" required placeholder="검증 불일치 사유와 확인 가능한 근거를 입력해 주세요."></textarea></label>
+            <button class="button button-secondary" type="submit">소명 제출</button>
+            <p id="receipt-explanation-status" class="muted" role="status"></p>
           </form>
         </div>
       </section>
@@ -244,6 +252,20 @@
       <button class="button button-secondary" data-close-dialog type="button">확인</button>
     </dialog>
 
+    <dialog id="review-dialog" aria-labelledby="review-title">
+      <div class="dialog-heading">
+        <h2 id="review-title">거래 후기 작성</h2>
+        <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
+      </div>
+      <form id="review-form" class="quick-login-form">
+        <input name="order_id" type="hidden">
+        <label>별점<select name="rating" required><option value="5">5점</option><option value="4">4점</option><option value="3">3점</option><option value="2">2점</option><option value="1">1점</option></select></label>
+        <label>후기<textarea name="body" rows="5" minlength="10" maxlength="1000" required placeholder="상품 상태, 소통, 배송 경험을 10자 이상 작성해 주세요."></textarea></label>
+        <button class="button" type="submit">검증 후기 등록</button>
+        <p id="review-status" class="muted" role="status"></p>
+      </form>
+    </dialog>
+
     <dialog id="login-dialog" aria-labelledby="login-title">
       <div class="dialog-heading">
         <h2 id="login-title">로그인</h2>
@@ -260,7 +282,33 @@
         <label>비밀번호<input name="password" type="password" required minlength="6"></label>
         <button class="button" type="submit">로그인</button>
       </form>
+      <p class="login-help"><button id="open-forgot-password" class="link-button" type="button">비밀번호를 잊으셨나요?</button></p>
       <p class="login-help">계정이 없으신가요? <button id="open-register-from-login" class="link-button" type="button">회원가입</button></p>
+    </dialog>
+
+    <dialog id="forgot-password-dialog" aria-labelledby="forgot-password-title">
+      <div class="dialog-heading">
+        <h2 id="forgot-password-title">비밀번호 찾기</h2>
+        <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
+      </div>
+      <form id="forgot-password-form" class="quick-login-form">
+        <label>가입 이메일<input name="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
+        <button class="button" type="submit">재설정 링크 받기</button>
+        <p id="forgot-password-status" class="muted" role="status"></p>
+      </form>
+    </dialog>
+
+    <dialog id="reset-password-dialog" aria-labelledby="reset-password-title">
+      <div class="dialog-heading">
+        <h2 id="reset-password-title">새 비밀번호 설정</h2>
+        <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
+      </div>
+      <form id="reset-password-form" class="quick-login-form">
+        <label>새 비밀번호<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="16" required></label>
+        <label>새 비밀번호 확인<input name="password_confirm" type="password" autocomplete="new-password" minlength="8" maxlength="16" required></label>
+        <button class="button" type="submit">비밀번호 변경</button>
+        <p id="reset-password-status" class="muted" role="status"></p>
+      </form>
     </dialog>
 
     <dialog id="register-dialog" aria-labelledby="register-title">

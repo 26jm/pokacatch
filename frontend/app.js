@@ -37,7 +37,7 @@ const products = [
 ];
 const SESSION_KEY = "poka-catch-session";
 const LANGUAGE_KEY = "poka-catch-language";
-const state = { cart: [], role: "CUSTOMER", language: localStorage.getItem(LANGUAGE_KEY) || "ko", userId: null, token: null, pendingProject: null };
+const state = { cart: [], role: "CUSTOMER", language: localStorage.getItem(LANGUAGE_KEY) || "ko", userId: null, token: null, pendingProject: null, checkoutKey: null, disputeOrderId: null, passwordResetToken: null };
 const catalog = { page: 1, items: [], total: 0, demoTotal: 0, loading: false, done: false };
 const money = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const byId = (id) => document.getElementById(id);
@@ -133,7 +133,9 @@ function openProductDetail(product) {
   byId("detail-progress").textContent = progressText(product.participants, product.min);
   byId("detail-source").textContent = product.source || "공식 온라인 스토어 (예정)";
   byId("detail-end-at").textContent = `${endAt.toLocaleDateString("ko-KR")} ${endAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`;
-  byId("detail-leader").textContent = product.leader || "Poka-Catch 인증 총대";
+  byId("detail-leader").textContent = product.leaderTrustScore == null
+    ? product.leader || "Poka-Catch 인증 총대"
+    : `${product.leader || "인증 총대"} · 신뢰도 ${product.leaderTrustScore.toFixed(1)}점 · 검증 후기 ${product.leaderReviewCount}건`;
   byId("detail-photo-info").textContent = product.photoInfo || "총대 등록 상품 사진 · 원본 확인 필요";
   byId("detail-description-text").textContent = translateDynamicText(product.description || `${product.title} 공동구매 안내입니다. 상품 구성과 배송 일정은 총대의 공지를 확인해 주세요.`);
   const detailPicker = byId("detail-member-picker");
@@ -159,6 +161,7 @@ function addProductToCart(product, picks) {
   }
   if (product.project_id) {
     state.pendingProject = { projectId: product.project_id, preferences: picks };
+    state.checkoutKey = crypto.randomUUID();
     byId("shipping-total").textContent = "공구 참여 금액은 선택 자리와 배송비를 기준으로 서버에서 계산합니다.";
     byId("shipping-dialog").showModal();
     return;
@@ -182,10 +185,18 @@ function activateUser(user, token) {
   byId("login-button").textContent = "로그아웃";
   applyRoleVisibility();
 }
+function decodeAuthToken(token) {
+  const encoded = String(token || "").split(".")[1];
+  if (!encoded) throw new Error("INVALID_AUTH_TOKEN");
+  const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(encoded.length / 4) * 4, "=");
+  return JSON.parse(atob(normalized));
+}
 function restoreSession() {
   try {
     const session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
-    if (!session?.userId || !session?.role) return;
+    if (!session?.userId || !session?.role || !session.token) return;
+    const payload = decodeAuthToken(session.token);
+    if (payload.sub !== session.userId || payload.role !== session.role || payload.exp * 1000 <= Date.now()) throw new Error("EXPIRED_AUTH_SESSION");
     state.userId = session.userId;
     state.role = session.role;
     state.token = session.token || null;
@@ -237,6 +248,8 @@ function projectToProduct(project) {
     source: project.source_url,
     description: project.product_metadata?.description,
     leader: project.leader_id,
+    leaderTrustScore: project.leader_trust_score,
+    leaderReviewCount: project.leader_verified_review_count || 0,
     photoInfo: project.product_metadata?.image_url || "총대 등록 상품 사진",
     projectSlots: slots
   };
@@ -318,6 +331,8 @@ function renderSeller() {
   const active = products.filter((p) => p.participants < p.min);
   area.innerHTML = `<div class="seller-dashboard"><div class="metric"><strong>${products.reduce((sum, p) => sum + p.participants, 0)}개</strong><span>누적 참여 수</span></div><div class="metric"><strong>${active.length}건</strong><span>진행 중 공동구매</span></div><div class="metric"><strong>${money.format(0)}</strong><span>체험 결제 실청구액</span></div></div><div class="table-wrap"><table class="seller-table"><thead><tr><th>상품</th><th>참여 현황</th><th>목표 달성률</th><th>상태</th></tr></thead><tbody>${products.map((p) => `<tr><td>${p.title}${p.demo ? " (체험용)" : ""}</td><td>${p.participants} / ${p.min}명</td><td>${Math.round(p.participants / p.min * 100)}%</td><td>${p.participants >= p.min ? "목표 달성" : "모집 중"}</td></tr>`).join("")}</tbody></table></div><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">ORDERS</p><h3>주문 취합표</h3></div></div><div id="seller-order-list" class="activity-list"><p class="muted">주문을 불러오는 중...</p></div></section><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">PAYMENTS</p><h3>내 공구 입금 확인</h3></div></div><div id="seller-payment-list" class="activity-list"><p class="muted">입금 대기 건을 불러오는 중...</p></div></section>`;
   area.insertAdjacentHTML("afterbegin", '<section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">SHIPMENT</p><h3>송장 등록</h3></div></div><form id="seller-shipment-form" class="quick-login-form"><label>공구<select name="project_id" id="seller-project-select" required><option value="">공구를 불러오는 중...</option></select></label><label>택배사<input name="carrier" required placeholder="CJ대한통운"></label><label>송장번호<input name="tracking_number" required></label><button class="button" type="submit">발송 처리</button></form></section>');
+  area.insertAdjacentHTML("afterbegin", '<section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">ALLOCATION</p><h3>개봉 결과 자동 배정</h3></div></div><form id="seller-allocation-form" class="quick-login-form"><label>멤버별 개봉 수량<input name="inventory" required placeholder="카리나:2, 윈터:1, 지젤:1"></label><label>개봉 인증 이미지 URL<input name="evidence_url" type="url" required placeholder="https://..."></label><button class="button" type="submit">1·2·3지망 자동 배정</button></form><div id="seller-allocation-result" class="activity-list"></div></section>');
+  area.insertAdjacentHTML("afterbegin", '<button id="seller-packing-button" class="button" type="button">전원 입금 확인 · 포장 취합표 열기</button>');
   area.insertAdjacentHTML("afterbegin", '<button id="seller-settle-button" class="button button-secondary" type="button">선택 공구 정산 실행</button>');
   loadSellerProjects();
   loadSellerOrders();
@@ -348,6 +363,48 @@ async function submitSellerShipment(event) {
     toast(error.message);
   }
 }
+function parseOpeningInventory(value) {
+  const inventory = {};
+  for (const entry of String(value || "").split(",")) {
+    const [member, rawCount] = entry.split(":").map((part) => part.trim());
+    const count = Number(rawCount);
+    if (!member || !Number.isInteger(count) || count < 0 || Object.hasOwn(inventory, member)) return null;
+    inventory[member] = count;
+  }
+  return Object.keys(inventory).length ? inventory : null;
+}
+async function submitSellerAllocation(event) {
+  if (event.target.id !== "seller-allocation-form") return;
+  event.preventDefault();
+  const projectId = byId("seller-project-select")?.value;
+  if (!projectId) return toast("배정할 공구를 선택해 주세요.");
+  const input = Object.fromEntries(new FormData(event.target));
+  const inventory = parseOpeningInventory(input.inventory);
+  if (!inventory) return toast("개봉 수량을 멤버:개수 형식으로 입력해 주세요.");
+  if (!window.confirm("입력한 개봉 수량으로 배정을 확정합니까? 배정 로그는 수정할 수 없습니다.")) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/seller/projects/${projectId}/allocate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...identityHeaders() },
+      body: JSON.stringify({ inventory, evidence_url: input.evidence_url })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "자동 배정 실패");
+    const list = byId("seller-allocation-result");
+    const summary = Object.assign(document.createElement("p"), { className: "activity-item", textContent: `배정 ${result.assigned_count}건 · 자동 환불 ${result.refunded_count}건` });
+    const rows = (result.items || []).map((allocation) => Object.assign(document.createElement("p"), {
+      className: "activity-item",
+      textContent: allocation.outcome === "ASSIGNED"
+        ? `${allocation.participant_id} · ${allocation.assigned_member} · ${allocation.preference_rank}지망 배정`
+        : `${allocation.participant_id} · 미배정 · ${money.format(allocation.refund_amount)} 자동 환불`
+    }));
+    list.replaceChildren(summary, ...rows);
+    toast("지망 배정과 미배정 환불을 확정했습니다.");
+    loadSellerProjects();
+  } catch (error) {
+    toast(error.message);
+  }
+}
 async function settleSellerProject() {
   const projectId = byId("seller-project-select")?.value;
   if (!projectId) return toast("정산할 공구를 선택해 주세요.");
@@ -358,6 +415,32 @@ async function settleSellerProject() {
     if (!response.ok) throw new Error(result.error || "정산 실행 실패");
     toast("정산을 실행하고 공구를 완료 처리했습니다.");
     renderSeller();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+async function startSellerPacking() {
+  const projectId = byId("seller-project-select")?.value;
+  if (!projectId) return toast("포장할 공구를 선택해 주세요.");
+  if (!window.confirm("전원 입금 완료 여부를 확인하고 배송지 원문 취합표를 엽니까?")) return;
+  try {
+    const startResponse = await fetch(`${API_BASE_URL}/api/v1/seller/projects/${projectId}/start-packing`, { method: "POST", headers: identityHeaders() });
+    const startResult = await startResponse.json();
+    if (!startResponse.ok) throw new Error(startResult.error || "포장 단계를 시작할 수 없습니다.");
+    const listResponse = await fetch(`${API_BASE_URL}/api/v1/seller/projects/${projectId}/packing-list`, { headers: identityHeaders() });
+    const result = await listResponse.json();
+    if (!listResponse.ok) throw new Error(result.error || "포장 취합표를 불러오지 못했습니다.");
+    const list = byId("seller-order-list");
+    list.replaceChildren(...result.items.map((order) => {
+      const item = order.order_items?.[0] || {};
+      const shipping = order.shipping_info || {};
+      const node = document.createElement("article");
+      node.className = "report-item";
+      node.innerHTML = `<div><strong>${result.project.title} · ${item.assigned_member || item.member_name || "멤버 미배정"}</strong><p>${shipping.recipient_name} · ${shipping.phone} · (${shipping.postal_code}) ${shipping.address} ${shipping.address_detail}</p><span class="muted">포장 단계에서만 공개되는 배송지 · ${money.format(order.total)}</span></div>`;
+      return node;
+    }));
+    toast("포장 단계를 시작하고 배송지 취합표를 열었습니다.");
+    loadSellerProjects();
   } catch (error) {
     toast(error.message);
   }
@@ -374,7 +457,7 @@ async function loadSellerOrders() {
       const shipping = order.shipping_info || {};
       const node = document.createElement("article");
       node.className = "report-item";
-      node.innerHTML = `<div><strong>${order.project_title} · ${item.member_name || "멤버 미배정"}</strong><p>${shipping.recipient_name || "받는 분 미입력"} · ${shipping.phone || "연락처 미입력"} · ${shipping.address || "주소 미입력"} ${shipping.address_detail || ""}</p><span class="muted">${money.format(order.total)} · ${payment?.status || order.status} · ${new Date(order.created_at).toLocaleString("ko-KR")}</span></div>`;
+      node.innerHTML = `<div><strong>${order.project_title} · ${item.member_name || "멤버 미배정"}</strong><p>${shipping.recipient_name || "받는 분 미입력"} · ${shipping.phone || "연락처 미입력"} · ${shipping.address || "주소 미입력"} ${shipping.address_detail || ""}</p><span class="muted">배송지 보호됨 · ${money.format(order.total)} · ${payment?.status || order.status} · ${new Date(order.created_at).toLocaleString("ko-KR")}</span></div>`;
       return node;
     }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "취합할 주문이 없습니다." })]));
   } catch (error) {
@@ -390,7 +473,7 @@ async function loadSellerPayments() {
     list.replaceChildren(...(result.items.length ? result.items.map((payment) => {
       const node = document.createElement("article");
       node.className = "report-item";
-      node.innerHTML = `<div><strong>${payment.project_title} · ${money.format(payment.amount)}</strong><p>가상계좌 ${payment.virtual_account || "미발급"} · 사용자 ${payment.user_id}</p><span class="muted">${new Date(payment.created_at).toLocaleString("ko-KR")} · ${payment.status}</span></div><button class="button" data-confirm-payment="${payment.id}" type="button">입금 확인</button>`;
+      node.innerHTML = `<div><strong>${payment.project_title} · ${money.format(payment.amount)}</strong><p>가상계좌 ${payment.virtual_account || "미발급"} · 사용자 ${payment.user_id}</p><span class="muted">${new Date(payment.created_at).toLocaleString("ko-KR")} · Webhook 자동 확인 대기</span></div>`;
       return node;
     }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "내 공구의 입금 확인 대기 건이 없습니다." })]));
   } catch (error) {
@@ -406,9 +489,39 @@ function renderAdmin() {
     byId("admin-content").innerHTML = '<div class="admin-gate"><p class="muted">관리자 계정으로 로그인한 뒤에만 분석 데이터와 정산 관리를 볼 수 있습니다. 직접 URL 접근 시 API는 403을 반환합니다.</p></div>';
     return;
   }
-  byId("admin-content").innerHTML = `<div class="seller-dashboard"><div class="metric"><strong>${products.length}건</strong><span>전체 공고</span></div><div class="metric"><strong>${money.format(products.reduce((sum, p) => sum + p.price * p.participants, 0))}</strong><span>표시 거래액</span></div><div class="metric"><strong id="report-count">-</strong><span>접수된 신고</span></div></div><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">PAYMENTS</p><h3>입금 수동 확인</h3></div></div><div id="payment-list" class="activity-list"><p class="muted">입금 대기 건을 불러오는 중...</p></div></section><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">REPORTS</p><h3>오류·사기 신고 처리</h3></div></div><div id="report-list" class="activity-list"><p class="muted">신고를 불러오는 중...</p></div></section>`;
+  byId("admin-content").innerHTML = `<div class="seller-dashboard"><div class="metric"><strong>${products.length}건</strong><span>전체 공고</span></div><div class="metric"><strong>${money.format(products.reduce((sum, p) => sum + p.price * p.participants, 0))}</strong><span>표시 거래액</span></div><div class="metric"><strong id="report-count">-</strong><span>접수된 신고</span></div></div><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">DEPOSIT</p><h3>총대 보증금 제재</h3></div></div><form id="admin-forfeit-form" class="quick-login-form"><label>보관 중 보증금<select name="project_id" id="admin-deposit-select" required><option value="">보증금을 불러오는 중...</option></select></label><label>몰수 사유<input name="reason" required placeholder="영수증 미제출 또는 거래 미이행"></label><button class="button button-danger" type="submit">몰수 및 보상 배분</button></form></section><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">PAYMENTS</p><h3>Webhook 입금 모니터링</h3></div></div><div id="payment-list" class="activity-list"><p class="muted">입금 대기 건을 불러오는 중...</p></div></section><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">RECEIPTS</p><h3>영수증 소명 심사</h3></div></div><div id="receipt-review-list" class="activity-list"><p class="muted">소명 내역을 불러오는 중...</p></div></section><section class="admin-reports"><div class="section-heading"><div><p class="eyebrow">REPORTS</p><h3>오류·사기 신고 처리</h3></div></div><div id="report-list" class="activity-list"><p class="muted">신고를 불러오는 중...</p></div></section>`;
+  loadAdminDeposits();
   loadAdminPayments();
+  loadReceiptReviews();
   loadAdminReports();
+}
+async function loadAdminDeposits() {
+  const select = byId("admin-deposit-select");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/admin/deposits?status=HELD`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "보증금 조회 실패");
+    select.replaceChildren(new Option("보증금을 선택하세요", ""), ...(result.items || []).map((deposit) => new Option(`${deposit.project_title} · ${money.format(deposit.amount)}`, deposit.project_id)));
+  } catch (error) {
+    select.replaceChildren(new Option(`보증금 조회 실패: ${error.message}`, ""));
+  }
+}
+async function forfeitProjectDeposit(event) {
+  if (event.target.id !== "admin-forfeit-form") return;
+  event.preventDefault();
+  const input = Object.fromEntries(new FormData(event.target));
+  if (!window.confirm("보증금을 몰수하고 결제 완료 참여자에게 전액 배분합니까? 이 작업은 되돌릴 수 없습니다.")) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/admin/projects/${input.project_id}/forfeit-deposit`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ reason: input.reason }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "보증금 몰수 실패");
+    const total = (result.compensations || []).reduce((sum, item) => sum + item.amount, 0);
+    toast(`${result.compensations.length}명에게 ${money.format(total)} 보상금을 배분했습니다.`);
+    event.target.reset();
+    loadAdminDeposits();
+  } catch (error) {
+    toast(error.message);
+  }
 }
 async function loadAdminPayments() {
   const list = byId("payment-list");
@@ -419,21 +532,60 @@ async function loadAdminPayments() {
     list.replaceChildren(...(result.items.length ? result.items.map((payment) => {
       const node = document.createElement("article");
       node.className = "report-item";
-      node.innerHTML = `<div><strong>${money.format(payment.amount)} · ${payment.virtual_account || "가상계좌 미발급"}</strong><p>주문 ${payment.order_id} · 사용자 ${payment.user_id}</p><span class="muted">${new Date(payment.created_at).toLocaleString("ko-KR")} · ${payment.status}</span></div><button class="button" data-confirm-payment="${payment.id}" type="button">입금 확인</button>`;
+      node.innerHTML = `<div><strong>${money.format(payment.amount)} · ${payment.virtual_account || "가상계좌 미발급"}</strong><p>주문 ${payment.order_id} · 사용자 ${payment.user_id}</p><span class="muted">${new Date(payment.created_at).toLocaleString("ko-KR")} · Webhook 자동 확인 대기</span></div>`;
       return node;
     }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "입금 확인 대기 건이 없습니다." })]));
   } catch (error) {
     list.replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: `입금 내역을 불러오지 못했습니다: ${error.message}` }));
   }
 }
-async function confirmPayment(button) {
-  if (!window.confirm("실제 입금을 확인했습니까? 확인 후 주문 상태가 확정됩니다.")) return;
+async function loadReceiptReviews() {
+  const list = byId("receipt-review-list");
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/payments/${button.dataset.confirmPayment}/confirm`, { method: "POST", headers: { ...identityHeaders() } });
+    const response = await fetch(`${API_BASE_URL}/api/v1/admin/receipt-verifications`, { headers: identityHeaders() });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "입금 확인 실패");
-    toast("입금을 확인하고 주문 상태를 확정했습니다.");
-    loadAdminPayments();
+    if (!response.ok) throw new Error(result.error || "영수증 소명 조회 실패");
+    const pending = (result.items || []).filter((item) => ["EXPLANATION_SUBMITTED", "EXPLANATION_EXPIRED"].includes(item.status));
+    list.replaceChildren(...(pending.length ? pending.map((verification) => {
+      const node = document.createElement("article");
+      node.className = "report-item";
+      const detail = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = `${verification.store_name || "판매처 미확인"} · 주문 ${verification.order_number || "미확인"}`;
+      const explanation = document.createElement("p");
+      explanation.textContent = verification.explanation || "48시간 내 소명이 제출되지 않았습니다.";
+      const meta = document.createElement("span");
+      meta.className = "muted";
+      meta.textContent = `${verification.status} · 수량 ${verification.quantity ?? "미확인"} · ${new Date(verification.created_at).toLocaleString("ko-KR")}`;
+      detail.append(title, explanation, meta);
+      const actions = document.createElement("div");
+      const approve = Object.assign(document.createElement("button"), { className: "button button-secondary", type: "button", textContent: "승인" });
+      approve.dataset.reviewReceipt = verification.id;
+      approve.dataset.decision = "APPROVED";
+      const reject = Object.assign(document.createElement("button"), { className: "button button-danger", type: "button", textContent: "반려" });
+      reject.dataset.reviewReceipt = verification.id;
+      reject.dataset.decision = "REJECTED";
+      actions.append(approve, reject);
+      node.append(detail, actions);
+      return node;
+    }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "검토할 영수증 소명이 없습니다." })]));
+  } catch (error) {
+    list.replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: error.message }));
+  }
+}
+async function reviewReceiptVerification(button) {
+  const note = window.prompt(button.dataset.decision === "APPROVED" ? "승인 메모를 입력해 주세요." : "반려 사유를 입력해 주세요.", "") ?? null;
+  if (note === null) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/admin/receipt-verifications/${button.dataset.reviewReceipt}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...identityHeaders() },
+      body: JSON.stringify({ decision: button.dataset.decision, note })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "영수증 심사 실패");
+    toast(button.dataset.decision === "APPROVED" ? "영수증 소명을 승인했습니다." : "영수증 소명을 반려했습니다.");
+    loadReceiptReviews();
   } catch (error) {
     toast(error.message);
   }
@@ -575,7 +727,7 @@ function setDocumentLanguage(language) {
 }
 
 function identityHeaders() {
-  return { "X-Demo-Role": state.role, "X-Demo-User": state.userId };
+  return state.token ? { Authorization: `Bearer ${state.token}` } : {};
 }
 
 document.addEventListener("click", (event) => {
@@ -624,7 +776,10 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("[data-close-dialog]")) {
     const dialog = event.target.closest("dialog");
     if (dialog?.open) dialog.close();
-    if (dialog?.id === "shipping-dialog") state.pendingProject = null;
+    if (dialog?.id === "shipping-dialog") {
+      state.pendingProject = null;
+      state.checkoutKey = null;
+    }
   }
 });
 
@@ -664,6 +819,10 @@ byId("open-register-from-login").addEventListener("click", () => {
   byId("login-dialog").close();
   byId("register-dialog").showModal();
 });
+byId("open-forgot-password").addEventListener("click", () => {
+  byId("login-dialog").close();
+  byId("forgot-password-dialog").showModal();
+});
 byId("cart-button").addEventListener("click", () => {
   if (!requireLogin()) return;
   renderCart();
@@ -690,7 +849,7 @@ async function submitCheckout(event) {
     };
     const response = await fetch(projectRequest.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...identityHeaders() },
+      headers: { "Content-Type": "application/json", ...(state.pendingProject ? { "Idempotency-Key": state.checkoutKey || (state.checkoutKey = crypto.randomUUID()) } : {}), ...identityHeaders() },
       body: JSON.stringify(projectRequest.body)
     });
     const result = await response.json();
@@ -698,6 +857,7 @@ async function submitCheckout(event) {
     await saveActivity({ type: "settlement", title: "입금 대기 신청", message: `${state.pendingProject ? "공구 자리 신청" : `${productIds.length}건`} · 배송 완료 D+7 자동 확정 대기` });
     state.cart = state.pendingProject ? state.cart : [];
     state.pendingProject = null;
+    state.checkoutKey = null;
     renderCart();
     renderActivities();
     byId("shipping-dialog").close();
@@ -740,6 +900,33 @@ async function confirmReceipt(button) {
     toast(error.message);
   }
 }
+function openReviewDialog(button) {
+  const form = byId("review-form");
+  form.reset();
+  form.elements.order_id.value = button.dataset.reviewOrder;
+  byId("review-status").textContent = "";
+  byId("review-dialog").showModal();
+}
+async function submitReview(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const input = Object.fromEntries(new FormData(form));
+  const status = byId("review-status");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/reviews`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...identityHeaders() },
+      body: JSON.stringify({ order_id: input.order_id, rating: Number(input.rating), body: input.body })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error === "REVIEW_ALREADY_EXISTS" ? "이미 후기를 작성한 주문입니다." : result.error || "후기 등록 실패");
+    byId("review-dialog").close();
+    toast(`후기가 등록되어 총대 신뢰도가 ${Number(result.leader_trust_score).toFixed(1)}점으로 갱신됐습니다.`);
+    renderActivities();
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
 byId("checkout-button").addEventListener("click", checkout);
 byId("shipping-form").addEventListener("submit", submitCheckout);
 byId("refresh-payment-button").addEventListener("click", refreshPaymentStatus);
@@ -772,6 +959,7 @@ async function loadPurchaseHistory() {
     if (!response.ok) throw new Error(result.error || "참여 내역 조회 실패");
     const list = byId("participation-list");
     const timeline = byId("participation-timeline");
+    state.disputeOrderId = (result.items || []).find((order) => !["EXPIRED", "CANCELLED", "SETTLED"].includes(order.status))?.id || null;
     const items = (result.items || []).map((order) => {
       const payment = Array.isArray(order.payments) ? order.payments[0] : order.payments;
       const status = payment?.status === "PENDING" ? "입금 대기" : ["PAID", "HELD"].includes(payment?.status) ? "입금 완료" : payment?.status === "RELEASED" ? "정산 완료" : order.status;
@@ -790,11 +978,44 @@ async function loadPurchaseHistory() {
       card.className = "report-item";
       const title = order.order_items?.[0]?.title || "공구 신청";
       const steps = stages.map((stage, index) => `<span class="status${index < statusIndex ? "" : index === statusIndex ? " active" : " pending"}">${stage}</span>`).join(" → ");
-      card.innerHTML = `<strong>${title}</strong><p class="timeline-steps">${steps}</p><span class="muted">현재 상태: ${order.status === "RECEIVED" ? "수령 확인" : order.status === "SETTLED" ? "정산 완료" : paymentComplete ? "입금 완료" : "입금 대기"}</span>${order.status === "SHIPPED" ? `<button class="button" data-confirm-receipt="${order.id}" type="button">수령 확인</button>` : ""}`;
+      const canReview = ["RECEIVED", "SETTLED"].includes(order.status) && !order.reviews?.length;
+      card.innerHTML = `<strong>${title}</strong><p class="timeline-steps">${steps}</p><span class="muted">현재 상태: ${order.status === "RECEIVED" ? "수령 확인" : order.status === "SETTLED" ? "정산 완료" : paymentComplete ? "입금 완료" : "입금 대기"}</span>${order.status === "SHIPPED" ? `<button class="button" data-confirm-receipt="${order.id}" type="button">수령 확인</button>` : ""}${canReview ? `<button class="button button-secondary" data-review-order="${order.id}" type="button">후기 작성</button>` : order.reviews?.length ? '<span class="muted">후기 작성 완료</span>' : ""}`;
       return card;
     }));
+    const allocationResponse = await fetch(`${API_BASE_URL}/api/v1/customer/allocations`, { headers: identityHeaders() });
+    const allocationResult = await allocationResponse.json();
+    if (allocationResponse.ok) {
+      (allocationResult.items || []).forEach((allocation) => {
+        list.append(Object.assign(document.createElement("p"), {
+          className: "activity-item",
+          textContent: allocation.outcome === "ASSIGNED"
+            ? `${allocation.project_title} · ${allocation.assigned_member} · ${allocation.preference_rank}지망 배정`
+            : `${allocation.project_title} · 미배정 · ${money.format(allocation.refund_amount)} 자동 환불`
+        }));
+      });
+    }
   } catch (error) {
     console.warn("구매·참여 내역 조회 실패:", error);
+  }
+}
+async function loadCompensations() {
+  if (state.role !== "CUSTOMER") return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/customer/compensations`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "보상금 조회 실패");
+    if (!result.items?.length) return;
+    const list = byId("settlement-list");
+    if (list.querySelector(".muted")) list.replaceChildren();
+    result.items.forEach((compensation) => {
+      const status = compensation.status === "PAID" ? "지급 완료" : "지급 대기";
+      list.append(Object.assign(document.createElement("p"), {
+        className: "activity-item",
+        textContent: `위약 보상금 ${money.format(compensation.amount)} · ${status} · ${compensation.reason}`
+      }));
+    });
+  } catch (error) {
+    console.warn("보상금 내역 조회 실패:", error);
   }
 }
 async function renderActivities() {
@@ -809,6 +1030,7 @@ async function renderActivities() {
     render("notification-list", result.items.filter((item) => item.type === "notification" || item.type === "dispute"), "새 알림이 없습니다.");
     byId("identity-status").textContent = result.account ? `계좌 등록됨 · ${state.role}` : `계정 세션 · ${state.role}`;
     loadPurchaseHistory();
+    loadCompensations();
   } catch (error) {
     console.warn("Supabase 활동 조회 실패:", error);
   }
@@ -873,6 +1095,62 @@ async function submitQuickLogin(event) {
   } catch (error) {
     toast(`로그인 실패: ${error.message}`);
   }
+}
+async function requestPasswordReset(event) {
+  event.preventDefault();
+  const email = event.currentTarget.elements.email.value.trim();
+  const status = byId("forgot-password-status");
+  status.textContent = "재설정 링크를 요청하는 중입니다.";
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/password-reset/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "재설정 요청 실패");
+    status.textContent = result.message;
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+function validPasswordForReset(password) {
+  const categories = [/[A-Za-z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((pattern) => pattern.test(password)).length;
+  return password.length >= 8 && password.length <= 16 && categories >= 2;
+}
+async function confirmPasswordReset(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const password = form.elements.password.value;
+  const status = byId("reset-password-status");
+  if (password !== form.elements.password_confirm.value) return status.textContent = "비밀번호 확인이 일치하지 않습니다.";
+  if (!validPasswordForReset(password)) return status.textContent = "8~16자로 영문·숫자·특수문자 중 2가지 이상을 조합해 주세요.";
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/password-reset/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: state.passwordResetToken, password })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error === "INVALID_OR_EXPIRED_RESET_TOKEN" ? "재설정 링크가 만료됐거나 이미 사용되었습니다." : result.error || "비밀번호 변경 실패");
+    state.passwordResetToken = null;
+    form.reset();
+    byId("reset-password-dialog").close();
+    byId("login-dialog").showModal();
+    toast("비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.");
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+function handlePasswordResetLink() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("reset_token");
+  if (!token) return;
+  state.passwordResetToken = token;
+  params.delete("reset_token");
+  const query = params.toString();
+  window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+  byId("reset-password-dialog").showModal();
 }
 async function submitQuickRegister(event) {
   event.preventDefault();
@@ -994,13 +1272,18 @@ function setupRegisterFormValidation() {
 setupRegisterFormValidation();
 function handleOauthRedirectResult() {
   const params = new URLSearchParams(window.location.search);
-  const oauthUser = params.get("oauth_user");
-  const oauthRole = params.get("oauth_role");
+  const oauthToken = params.get("oauth_token");
   const oauthError = params.get("oauth_error");
-  if (!oauthUser && !oauthError) return;
+  if (!oauthToken && !oauthError) return;
   window.history.replaceState({}, "", window.location.pathname + window.location.hash);
   if (oauthError) return toast("소셜 로그인에 실패했습니다. 다시 시도해 주세요.");
-  activateUser({ id: oauthUser, role: oauthRole || "CUSTOMER" }, `demo-token-${oauthUser}`);
+  let payload;
+  try {
+    payload = decodeAuthToken(oauthToken);
+  } catch {
+    return toast("소셜 로그인 토큰이 올바르지 않습니다. 다시 시도해 주세요.");
+  }
+  activateUser({ id: payload.sub, role: payload.role }, oauthToken);
   byId("login-dialog")?.close();
   byId("register-dialog")?.close();
   toast("소셜 로그인이 완료되었습니다.");
@@ -1008,6 +1291,7 @@ function handleOauthRedirectResult() {
   renderActivities();
 }
 handleOauthRedirectResult();
+handlePasswordResetLink();
 
 async function handleSupabaseAuthSession(session) {
   if (!session?.access_token) return;
@@ -1149,6 +1433,7 @@ async function processDocument(event) {
   resultNode.textContent = "AI가 문서를 분석하는 중...";
   try {
     if (!file && !data.text.trim()) throw new Error("이미지 또는 텍스트를 입력해 주세요.");
+    if (data.kind === "receipt" && !data.project_id.trim()) throw new Error("영수증을 검증할 공구 ID를 입력해 주세요.");
     let result;
     if (file) {
       if (file.size > 3 * 1024 * 1024) throw new Error("이미지는 3MB 이하만 업로드할 수 있습니다.");
@@ -1161,19 +1446,27 @@ async function processDocument(event) {
       const image_base64 = String(image).split(",")[1];
       const response = await fetch(`${API_BASE_URL}/api/v1/ocr/parse`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...identityHeaders() },
         body: JSON.stringify({ image_base64, kind: data.kind, project_id: data.project_id || null })
       });
       result = await response.json();
       if (!response.ok) {
         const fallback = await fetch(`${API_BASE_URL}/api/v1/documents/parse`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...identityHeaders() },
           body: JSON.stringify({ kind: data.kind, image, project_id: data.project_id || null })
         });
         result = await fallback.json();
         if (!fallback.ok) throw new Error(result.error || "문서 분석 실패");
       }
+    } else if (["receipt", "waybill"].includes(data.kind)) {
+      const response = await fetch(`${API_BASE_URL}/api/v1/documents/parse`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...identityHeaders() },
+        body: JSON.stringify({ kind: data.kind, text: data.text, project_id: data.project_id || null })
+      });
+      result = await response.json();
+      if (!response.ok) throw new Error(result.error || "문서 분석 실패");
     } else {
       const response = await fetch(`${API_BASE_URL}/api/v1/twitter/parse`, {
         method: "POST",
@@ -1185,6 +1478,15 @@ async function processDocument(event) {
     }
     if (result.kind === "receipt") {
       resultNode.textContent = JSON.stringify({ kind: "receipt", ...result.receipt_fields, verification: result.verification || "검증할 공구 ID를 입력하면 자동 대조됩니다." }, null, 2);
+      const explanationForm = byId("receipt-explanation-form");
+      const needsExplanation = result.verification?.status === "EXPLANATION_REQUIRED";
+      explanationForm.hidden = !needsExplanation;
+      if (needsExplanation) {
+        explanationForm.elements.receipt_id.value = result.verification.receipt_id;
+        explanationForm.elements.explanation.value = "";
+        byId("receipt-explanation-deadline").textContent = `제출 기한: ${new Date(result.verification.explanation_due_at).toLocaleString("ko-KR")}`;
+        byId("receipt-explanation-status").textContent = result.verification.reasons.join(" ");
+      }
       await saveActivity({ type: "notification", message: result.verification ? (result.verification.verified ? "영수증 자동 검증 통과" : "영수증 검증 실패 · 확인 필요") : "영수증 구조화 완료" });
       renderActivities();
       setWorkflowStatus(result.verification?.verified === false ? "영수증 검증에 실패했습니다. 내용을 확인해 주세요." : "영수증 구조화가 완료되었습니다.");
@@ -1208,16 +1510,40 @@ async function processDocument(event) {
     setWorkflowStatus("AI 결과를 확인 큐에 등록했습니다.");
   }
 }
+async function submitReceiptExplanation(event) {
+  event.preventDefault();
+  const input = Object.fromEntries(new FormData(event.currentTarget));
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/seller/receipt-verifications/${input.receipt_id}/explanation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...identityHeaders() },
+      body: JSON.stringify({ explanation: input.explanation })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "소명 제출 실패");
+    byId("receipt-explanation-status").textContent = "소명이 제출되었습니다. 관리자 검토를 기다려 주세요.";
+    event.currentTarget.querySelector("button").disabled = true;
+    toast("영수증 검증 소명을 제출했습니다.");
+  } catch (error) {
+    byId("receipt-explanation-status").textContent = error.message;
+  }
+}
 
 document.querySelector("#auth-form")?.addEventListener("submit", submitAuth);
 document.querySelector("#quick-login-form")?.addEventListener("submit", submitQuickLogin);
+document.querySelector("#forgot-password-form")?.addEventListener("submit", requestPasswordReset);
+document.querySelector("#reset-password-form")?.addEventListener("submit", confirmPasswordReset);
+document.querySelector("#review-form")?.addEventListener("submit", submitReview);
 document.querySelector("#quick-register-form")?.addEventListener("submit", submitQuickRegister);
 document.querySelector("#profile-form")?.addEventListener("submit", updateProfile);
 document.querySelector("#delete-account-button")?.addEventListener("click", deleteAccount);
 document.querySelector("#profile-form input[name='current_password']")?.addEventListener("input", (event) => setProfileLocked(event.target.value.length < 6));
 document.querySelector("#open-project-form")?.addEventListener("submit", openProject);
 document.querySelector("#document-form")?.addEventListener("submit", processDocument);
+document.querySelector("#receipt-explanation-form")?.addEventListener("submit", submitReceiptExplanation);
 document.addEventListener("submit", submitSellerShipment);
+document.addEventListener("submit", submitSellerAllocation);
+document.addEventListener("submit", forfeitProjectDeposit);
 document.querySelector("[data-action='import-product']")?.addEventListener("click", importProductInfo);
 document.querySelector("[data-action='save-account']")?.addEventListener("click", async () => {
   const account = byId("auth-form").elements.account.value.trim();
@@ -1234,8 +1560,9 @@ document.querySelector("[data-action='notify']")?.addEventListener("click", asyn
 });
 document.querySelector("[data-action='dispute']")?.addEventListener("click", async () => {
   if (!requireLogin()) return;
+  if (!state.disputeOrderId) return setWorkflowStatus("분쟁을 신고할 진행 중 주문이 없습니다.", true);
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ subject_type: "ORDER", reason: "주문 분쟁 신고", details: "사용자가 현재 주문에 대한 검토를 요청했습니다." }) });
+    const response = await fetch(`${API_BASE_URL}/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ subject_type: "ORDER", subject_id: state.disputeOrderId, reason: "주문 분쟁 신고", details: "사용자가 현재 진행 중인 주문에 대한 검토를 요청했습니다." }) });
     if (!response.ok) throw new Error("신고 접수 실패");
   } catch (error) {
     return setWorkflowStatus(error.message, true);
@@ -1248,11 +1575,14 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("select[data-report-id]")) updateReportStatus(event.target);
 });
 document.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-confirm-payment]");
-  if (button) confirmPayment(button);
   const receiptButton = event.target.closest("[data-confirm-receipt]");
   if (receiptButton) confirmReceipt(receiptButton);
+  if (event.target.closest("#seller-packing-button")) startSellerPacking();
   if (event.target.closest("#seller-settle-button")) settleSellerProject();
+  const receiptReviewButton = event.target.closest("[data-review-receipt]");
+  if (receiptReviewButton) reviewReceiptVerification(receiptReviewButton);
+  const reviewButton = event.target.closest("[data-review-order]");
+  if (reviewButton) openReviewDialog(reviewButton);
 });
 async function loadCart() {
   try {
