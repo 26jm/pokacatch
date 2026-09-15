@@ -1,9 +1,13 @@
-// [수정 1] Vercel 서버리스 환경과의 모듈 호환성을 위해 require 방식으로 통일
+﻿// [수정 1] Vercel 서버리스 환경과의 모듈 호환성을 위해 require 방식으로 통일
 require("dotenv").config();
 const { randomUUID, randomBytes, scryptSync, timingSafeEqual } = require("node:crypto");
 const { createClient } = require("@supabase/supabase-js");
 
-const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY, SUPERBASE_ANNON_KEY, UPSTAGE_API_KEY, UPSTAGE_MODEL = "solar-pro2" } = process.env;
+const {
+  SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY, SUPERBASE_ANNON_KEY, UPSTAGE_API_KEY, UPSTAGE_MODEL = "solar-pro2",
+  GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, KAKAO_CLIENT_ID, KAKAO_CLIENT_SECRET,
+  BACKEND_URL = "http://localhost:3000", FRONTEND_URL = "http://localhost:3000"
+} = process.env;
 const supabaseKey = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY || SUPERBASE_ANNON_KEY;
 if (!SUPABASE_URL || !supabaseKey) throw new Error("SUPABASE_URL과 SUPABASE_SERVICE_ROLE_KEY 또는 SUPABASE_ANON_KEY 환경 변수가 필요합니다.");
 const supabase = createClient(SUPABASE_URL, supabaseKey, { auth: { autoRefreshToken: false, persistSession: false } });
@@ -20,6 +24,66 @@ function verifyPassword(password, storedHash) {
   const expectedBuffer = Buffer.from(expected, "hex");
   return actual.length === expectedBuffer.length && timingSafeEqual(actual, expectedBuffer);
 }
+
+// 소셜 로그인(OAuth) 제공자 설정. 트위터는 연동 보류.
+const OAUTH_PROVIDERS = {
+  google: {
+    clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, scope: "openid email profile",
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth", tokenUrl: "https://oauth2.googleapis.com/token",
+    profileUrl: "https://www.googleapis.com/oauth2/v3/userinfo",
+    tokenBody: (code, redirectUri) => new URLSearchParams({ code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: redirectUri, grant_type: "authorization_code" }),
+    mapProfile: (profile) => ({ oauthId: profile.sub, email: profile.email || null, nickname: profile.name || profile.email?.split("@")[0] || "google-user" })
+  },
+  naver: {
+    clientId: NAVER_CLIENT_ID, clientSecret: NAVER_CLIENT_SECRET, scope: "",
+    authorizeUrl: "https://nid.naver.com/oauth2.0/authorize", tokenUrl: "https://nid.naver.com/oauth2.0/token",
+    profileUrl: "https://openapi.naver.com/v1/nid/me",
+    tokenBody: (code, redirectUri, state) => new URLSearchParams({ code, client_id: NAVER_CLIENT_ID, client_secret: NAVER_CLIENT_SECRET, redirect_uri: redirectUri, grant_type: "authorization_code", state }),
+    mapProfile: (profile) => ({ oauthId: profile.response?.id, email: profile.response?.email || null, nickname: profile.response?.nickname || profile.response?.name || "naver-user" })
+  },
+  kakao: {
+    clientId: KAKAO_CLIENT_ID, clientSecret: KAKAO_CLIENT_SECRET, scope: "profile_nickname account_email",
+    authorizeUrl: "https://kauth.kakao.com/oauth/authorize", tokenUrl: "https://kauth.kakao.com/oauth/token",
+    profileUrl: "https://kapi.kakao.com/v2/user/me",
+    tokenBody: (code, redirectUri) => new URLSearchParams({ code, client_id: KAKAO_CLIENT_ID, client_secret: KAKAO_CLIENT_SECRET, redirect_uri: redirectUri, grant_type: "authorization_code" }),
+    mapProfile: (profile) => ({ oauthId: String(profile.id), email: profile.kakao_account?.email || null, nickname: profile.kakao_account?.profile?.nickname || profile.properties?.nickname || "kakao-user" })
+  }
+};
+const oauthStates = new Map();
+function createOauthState(provider) {
+  const state = randomBytes(16).toString("hex");
+  oauthStates.set(state, { provider, expires: Date.now() + 5 * 60000 });
+  for (const [key, value] of oauthStates) if (value.expires < Date.now()) oauthStates.delete(key);
+  return state;
+}
+function consumeOauthState(state, provider) {
+  const entry = oauthStates.get(state);
+  if (!entry || entry.provider !== provider || entry.expires < Date.now()) return false;
+  oauthStates.delete(state);
+  return true;
+}
+function redirect(res, location) { res.writeHead(302, { Location: location }); res.end(); }
+async function findOrCreateOauthUser(provider, profile) {
+  const { oauthId, email, nickname } = profile;
+  if (!oauthId) throw new Error("OAUTH_PROFILE_MISSING_ID");
+  const { data: existing, error: existingError } = await supabase.from("users").select("id,email,role").eq("oauth_provider", provider).eq("oauth_id", oauthId).maybeSingle();
+  if (existingError) throw existingError;
+  if (existing) return existing;
+  if (email) {
+    const { data: byEmail, error: byEmailError } = await supabase.from("users").select("id,email,role").eq("email", email).maybeSingle();
+    if (byEmailError) throw byEmailError;
+    if (byEmail) {
+      const { data: linked, error: linkError } = await supabase.from("users").update({ oauth_provider: provider, oauth_id: oauthId }).eq("id", byEmail.id).select("id,email,role").single();
+      if (linkError) throw linkError;
+      return linked;
+    }
+  }
+  const user = { id: `customer-${randomUUID()}`, email: email || `${provider}-${oauthId}@oauth.local`, role: "CUSTOMER", full_name: nickname, oauth_provider: provider, oauth_id: oauthId };
+  const { data: created, error: createError } = await supabase.from("users").insert(user).select("id,email,role").single();
+  if (createError) throw createError;
+  return created;
+}
+
 
 const ALIAS_MAP = {
   "에스파": ["aespa", "에스파"], aespa: ["aespa", "에스파"],
@@ -212,14 +276,54 @@ const handler = async (req, res) => {
 
   try {
     if (req.method === "GET" && url.pathname === "/health") { const { error } = await supabase.from("users").select("id", { head: true }); if (error) throw error; return send(res, 200, { ok: true, database: "supabase" }); }
-    if (req.method === "POST" && url.pathname === "/api/v1/auth/register") { const input = await body(req); if (!input.email || !input.password || !input.full_name || !input.phone || !input.birth_date || !input.postal_code || !input.address || !input.privacy_consent || !["CUSTOMER", "SELLER"].includes(input.role || "CUSTOMER")) return send(res, 400, { error: "INVALID_REGISTRATION" }); const { data: sameEmail, error: emailError } = await supabase.from("users").select("id,deleted_at").eq("email", input.email).maybeSingle(); if (emailError) throw emailError; if (sameEmail) { const deletedAt = sameEmail.deleted_at ? new Date(sameEmail.deleted_at).getTime() : null; if (!deletedAt || Date.now() - deletedAt < 30 * 86400000) return send(res, 409, { error: "EMAIL_UNAVAILABLE" }); await supabase.from("users").update({ email: `withdrawn-${sameEmail.id}@invalid.local` }).eq("id", sameEmail.id); } const { data: samePhone, error: phoneError } = await supabase.from("users").select("id,deleted_at").eq("phone", input.phone).maybeSingle(); if (phoneError) throw phoneError; if (samePhone && (!samePhone.deleted_at || Date.now() - new Date(samePhone.deleted_at).getTime() < 7 * 86400000)) return send(res, 409, { error: "PHONE_UNAVAILABLE" }); const user = { id: `${(input.role || "CUSTOMER").toLowerCase()}-${randomUUID()}`, email: input.email, password_hash: hashPassword(input.password), role: input.role || "CUSTOMER", twitter_handle: input.twitter_handle || null, full_name: input.full_name, phone: input.phone, birth_date: input.birth_date, postal_code: input.postal_code, address: input.address, address_detail: input.address_detail || null, privacy_consented_at: new Date().toISOString() }; const { data, error } = await supabase.from("users").insert(user).select("id,email,role,twitter_handle,full_name,phone,birth_date,postal_code,address,address_detail").single(); if (error) return send(res, error.code === "23505" ? 409 : 400, { error: error.code === "23505" ? "EMAIL_ALREADY_EXISTS" : "INVALID_REGISTRATION" }); return send(res, 201, { user: data, token: `demo-token-${data.id}` }); }
-    if (req.method === "POST" && url.pathname === "/api/v1/auth/login") { const input = await body(req); const { data, error } = await supabase.from("users").select("id,email,role,twitter_handle,full_name,phone,birth_date,postal_code,address,address_detail,password_hash,deleted_at").eq("email", input.email).maybeSingle(); if (error) throw error; if (!data || !verifyPassword(input.password, data.password_hash)) return send(res, 401, { error: "INVALID_CREDENTIALS" }); if (data.deleted_at) { const recoverable = Date.now() - new Date(data.deleted_at).getTime() < 30 * 86400000; return send(res, 409, { error: recoverable ? "ACCOUNT_DELETED_RECOVERABLE" : "ACCOUNT_DELETED", recoverable, user_id: data.id }); } const { password_hash, deleted_at, ...user } = data; return send(res, 200, { user, token: `demo-token-${user.id}` }); }
+    if (req.method === "GET" && url.pathname === "/api/v1/auth/check-username") {
+      const username = (url.searchParams.get("username") || "").trim().toLowerCase();
+      if (!/^[a-z0-9]{4,20}$/.test(username)) return send(res, 400, { error: "INVALID_USERNAME_FORMAT" });
+      const { data, error } = await supabase.from("users").select("id").eq("username", username).maybeSingle();
+      if (error) throw error;
+      return send(res, 200, { available: !data });
+    }
+    if (req.method === "GET" && url.pathname.match(/^\/api\/v1\/auth\/oauth\/[^/]+$/)) {
+      const provider = url.pathname.split("/").pop();
+      const config = OAUTH_PROVIDERS[provider];
+      if (!config || !config.clientId || !config.clientSecret) return send(res, 400, { error: "OAUTH_PROVIDER_NOT_CONFIGURED" });
+      const state = createOauthState(provider);
+      const redirectUri = `${BACKEND_URL}/api/v1/auth/oauth/${provider}/callback`;
+      const authorize = new URL(config.authorizeUrl);
+      authorize.searchParams.set("client_id", config.clientId);
+      authorize.searchParams.set("redirect_uri", redirectUri);
+      authorize.searchParams.set("response_type", "code");
+      authorize.searchParams.set("state", state);
+      if (config.scope) authorize.searchParams.set("scope", config.scope);
+      return redirect(res, authorize.toString());
+    }
+    if (req.method === "GET" && url.pathname.match(/^\/api\/v1\/auth\/oauth\/[^/]+\/callback$/)) {
+      const provider = url.pathname.split("/")[5];
+      const config = OAUTH_PROVIDERS[provider];
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      if (!config || !code || !state || !consumeOauthState(state, provider)) return redirect(res, `${FRONTEND_URL}/?oauth_error=OAUTH_STATE_INVALID`);
+      try {
+        const redirectUri = `${BACKEND_URL}/api/v1/auth/oauth/${provider}/callback`;
+        const tokenResponse = await fetch(config.tokenUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: config.tokenBody(code, redirectUri, state) });
+        const tokenResult = await tokenResponse.json();
+        if (!tokenResponse.ok || !tokenResult.access_token) throw new Error("OAUTH_TOKEN_EXCHANGE_FAILED");
+        const profileResponse = await fetch(config.profileUrl, { headers: { Authorization: `Bearer ${tokenResult.access_token}` } });
+        const profile = await profileResponse.json();
+        if (!profileResponse.ok) throw new Error("OAUTH_PROFILE_FETCH_FAILED");
+        const user = await findOrCreateOauthUser(provider, config.mapProfile(profile));
+        return redirect(res, `${FRONTEND_URL}/?oauth_user=${encodeURIComponent(user.id)}&oauth_role=${encodeURIComponent(user.role)}`);
+      } catch (error) {
+        console.warn(`${provider} OAuth login failed:`, error.message);
+        return redirect(res, `${FRONTEND_URL}/?oauth_error=OAUTH_LOGIN_FAILED`);
+      }
+    }
+    if (req.method === "POST" && url.pathname === "/api/v1/auth/register") { const input = await body(req); const username = String(input.username || "").trim().toLowerCase(); if (!username || !/^[a-z0-9]{4,20}$/.test(username)) return send(res, 400, { error: "INVALID_USERNAME_FORMAT" }); const categories = [/[A-Za-z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((pattern) => pattern.test(input.password || "")).length; if (!input.password || input.password.length < 8 || input.password.length > 16 || categories < 2) return send(res, 400, { error: "WEAK_PASSWORD" }); if (!input.email || !input.full_name || !input.phone || !input.birth_date || !input.postal_code || !input.address || !input.privacy_consent || !["CUSTOMER", "SELLER"].includes(input.role || "CUSTOMER")) return send(res, 400, { error: "INVALID_REGISTRATION" }); const { data: sameUsername, error: usernameError } = await supabase.from("users").select("id").eq("username", username).maybeSingle(); if (usernameError) throw usernameError; if (sameUsername) return send(res, 409, { error: "USERNAME_ALREADY_EXISTS" }); const { data: sameEmail, error: emailError } = await supabase.from("users").select("id,deleted_at").eq("email", input.email).maybeSingle(); if (emailError) throw emailError; if (sameEmail) { const deletedAt = sameEmail.deleted_at ? new Date(sameEmail.deleted_at).getTime() : null; if (!deletedAt || Date.now() - deletedAt < 30 * 86400000) return send(res, 409, { error: "EMAIL_UNAVAILABLE" }); await supabase.from("users").update({ email: `withdrawn-${sameEmail.id}@invalid.local` }).eq("id", sameEmail.id); } const { data: samePhone, error: phoneError } = await supabase.from("users").select("id,deleted_at").eq("phone", input.phone).maybeSingle(); if (phoneError) throw phoneError; if (samePhone && (!samePhone.deleted_at || Date.now() - new Date(samePhone.deleted_at).getTime() < 7 * 86400000)) return send(res, 409, { error: "PHONE_UNAVAILABLE" }); const user = { id: `${(input.role || "CUSTOMER").toLowerCase()}-${randomUUID()}`, username, email: input.email, password_hash: hashPassword(input.password), role: input.role || "CUSTOMER", twitter_handle: input.twitter_handle || null, full_name: input.full_name, phone: input.phone, birth_date: input.birth_date, postal_code: input.postal_code, address: input.address, address_detail: input.address_detail || null, marketing_consent: Boolean(input.marketing_consent), privacy_consented_at: new Date().toISOString() }; const { data, error } = await supabase.from("users").insert(user).select("id,username,email,role,twitter_handle,full_name,phone,birth_date,postal_code,address,address_detail,marketing_consent").single(); if (error) return send(res, error.code === "23505" ? 409 : 400, { error: error.code === "23505" ? "EMAIL_ALREADY_EXISTS" : "INVALID_REGISTRATION" }); return send(res, 201, { user: data, token: `demo-token-${data.id}` }); }
+    if (req.method === "POST" && url.pathname === "/api/v1/auth/login") { const input = await body(req); const identifier = String(input.identifier || input.email || "").trim(); const isEmail = identifier.includes("@"); const { data, error } = await supabase.from("users").select("id,email,role,twitter_handle,full_name,phone,birth_date,postal_code,address,address_detail,password_hash,deleted_at").eq(isEmail ? "email" : "username", isEmail ? identifier : identifier.toLowerCase()).maybeSingle(); if (error) throw error; if (!data || !verifyPassword(input.password, data.password_hash)) return send(res, 401, { error: "INVALID_CREDENTIALS" }); if (data.deleted_at) { const recoverable = Date.now() - new Date(data.deleted_at).getTime() < 30 * 86400000; return send(res, 409, { error: recoverable ? "ACCOUNT_DELETED_RECOVERABLE" : "ACCOUNT_DELETED", recoverable, user_id: data.id }); } const { password_hash, deleted_at, ...user } = data; return send(res, 200, { user, token: `demo-token-${user.id}` }); }
     if (req.method === "POST" && url.pathname === "/api/v1/auth/restore") { const input = await body(req); const { data, error } = await supabase.from("users").select("id,email,role,twitter_handle,full_name,phone,birth_date,postal_code,address,address_detail,password_hash,deleted_at").eq("email", input.email).maybeSingle(); if (error) throw error; if (!data || !verifyPassword(input.password, data.password_hash) || !data.deleted_at || Date.now() - new Date(data.deleted_at).getTime() >= 30 * 86400000) return send(res, 400, { error: "ACCOUNT_NOT_RECOVERABLE" }); const { password_hash, deleted_at, ...user } = data; const { error: restoreError } = await supabase.from("users").update({ deleted_at: null, deletion_requested_at: null }).eq("id", data.id); if (restoreError) throw restoreError; return send(res, 200, { user, token: `demo-token-${user.id}`, restored: true }); }
     if (req.method === "GET" && url.pathname === "/api/v1/account/profile") { const user = identity(req); const { data, error } = await supabase.from("users").select("id,email,role,twitter_handle,full_name,phone,birth_date,postal_code,address,address_detail").eq("id", user.userId).is("deleted_at", null).maybeSingle(); if (error) throw error; if (!data) return send(res, 404, { error: "ACCOUNT_NOT_FOUND" }); return send(res, 200, { user: data }); }
     if (req.method === "PATCH" && url.pathname === "/api/v1/account/profile") { const user = identity(req); const input = await body(req); const { data: current, error: currentError } = await supabase.from("users").select("password_hash").eq("id", user.userId).is("deleted_at", null).maybeSingle(); if (currentError) throw currentError; if (!current || !verifyPassword(input.current_password, current.password_hash)) return send(res, 403, { error: "PASSWORD_REQUIRED" }); const allowed = ["full_name", "phone", "birth_date", "postal_code", "address", "address_detail", "twitter_handle"]; const updates = Object.fromEntries(allowed.filter((key) => input[key] !== undefined).map((key) => [key, input[key] || null])); if (input.new_password) updates.password_hash = hashPassword(input.new_password); if (!Object.keys(updates).length) return send(res, 400, { error: "NO_PROFILE_CHANGES" }); const { data, error } = await supabase.from("users").update(updates).eq("id", user.userId).select("id,email,role,twitter_handle,full_name,phone,birth_date,postal_code,address,address_detail").single(); if (error) return send(res, error.code === "23505" ? 409 : 400, { error: error.code === "23505" ? "PHONE_ALREADY_EXISTS" : "PROFILE_UPDATE_FAILED" }); return send(res, 200, { user: data }); }
     if (req.method === "DELETE" && url.pathname === "/api/v1/account") { const user = identity(req); const input = await body(req); const { data: current, error: currentError } = await supabase.from("users").select("password_hash").eq("id", user.userId).is("deleted_at", null).maybeSingle(); if (currentError) throw currentError; if (!current || !verifyPassword(input.password, current.password_hash)) return send(res, 403, { error: "PASSWORD_REQUIRED" }); const now = new Date().toISOString(); const { error } = await supabase.from("users").update({ deletion_requested_at: now, deleted_at: now }).eq("id", user.userId); if (error) throw error; return send(res, 200, { deleted_at: now, recoverable_until: new Date(Date.now() + 30 * 86400000).toISOString(), email_reusable_after: new Date(Date.now() + 30 * 86400000).toISOString(), phone_reusable_after: new Date(Date.now() + 7 * 86400000).toISOString() }); }
-    if (req.method === "POST" && url.pathname === "/api/v1/auth/register") { const input = await body(req); if (!input.email || !input.password || !input.full_name || !input.phone || !input.birth_date || !input.postal_code || !input.address || !input.privacy_consent || !["CUSTOMER", "SELLER"].includes(input.role || "CUSTOMER")) return send(res, 400, { error: "INVALID_REGISTRATION" }); const user = { id: `${(input.role || "CUSTOMER").toLowerCase()}-${randomUUID()}`, email: input.email, password_hash: hashPassword(input.password), role: input.role || "CUSTOMER", twitter_handle: input.twitter_handle || null, full_name: input.full_name, phone: input.phone, birth_date: input.birth_date, postal_code: input.postal_code, address: input.address, address_detail: input.address_detail || null, privacy_consented_at: new Date().toISOString() }; const { data, error } = await supabase.from("users").insert(user).select("id,email,role,twitter_handle,full_name,phone").single(); if (error) return send(res, error.code === "23505" ? 409 : 400, { error: error.code === "23505" ? "EMAIL_ALREADY_EXISTS" : "INVALID_REGISTRATION" }); return send(res, 201, { user: data, token: `demo-token-${data.id}` }); }
-    if (req.method === "POST" && url.pathname === "/api/v1/auth/login") { const input = await body(req); const { data, error } = await supabase.from("users").select("id,email,role,twitter_handle,password_hash").eq("email", input.email).maybeSingle(); if (error) throw error; if (!data || !verifyPassword(input.password, data.password_hash)) return send(res, 401, { error: "INVALID_CREDENTIALS" }); const { password_hash, ...user } = data; return send(res, 200, { user, token: `demo-token-${user.id}` }); }
     if (url.pathname.startsWith("/api/v1/admin")) { if (!role(req, res, ["ADMIN"])) return; }
     if (req.method === "GET" && url.pathname === "/api/v1/admin/reports") { const { data, error } = await supabase.from("reports").select("*").order("created_at", { ascending: false }); if (error) throw error; return send(res, 200, { items: data || [] }); }
     if (req.method === "PATCH" && url.pathname.match(/^\/api\/v1\/admin\/reports\/[^/]+$/)) { const input = await body(req); if (!["OPEN", "REVIEWING", "RESOLVED", "REJECTED"].includes(input.status)) return send(res, 400, { error: "INVALID_REPORT_STATUS" }); const { data, error } = await supabase.from("reports").update({ status: input.status, resolved_at: ["RESOLVED", "REJECTED"].includes(input.status) ? new Date().toISOString() : null }).eq("id", url.pathname.split("/").pop()).select().single(); if (error) throw error; return send(res, 200, { report: data }); }

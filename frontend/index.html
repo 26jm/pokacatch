@@ -41,6 +41,7 @@
         </select>
         <button class="icon-button header-icon" type="button" aria-label="알림">🔔</button>
         <button id="login-button" class="button button-secondary" type="button">로그인</button>
+        <button id="register-button" class="button button-secondary" type="button">회원가입</button>
         <button id="cart-button" class="button button-secondary" type="button">장바구니 <span id="cart-count">0</span></button>
       </div>
     </header>
@@ -249,33 +250,72 @@
         <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
       </div>
       <div class="social-login-list">
-        <button class="social-login twitter" data-social-login="트위터" type="button">트위터로 로그인</button>
-        <button class="social-login naver" data-social-login="네이버" type="button">네이버로 로그인</button>
-        <button class="social-login kakao" data-social-login="카카오" type="button">카카오로 로그인</button>
-        <button class="social-login google" data-social-login="구글" type="button">구글로 로그인</button>
+        <button class="social-login naver" data-social-login="naver" type="button">네이버로 로그인</button>
+        <button class="social-login kakao" data-social-login="kakao" type="button">카카오로 로그인</button>
+        <button class="social-login google" data-social-login="google" type="button">구글로 로그인</button>
       </div>
       <div class="login-divider"><span>또는 이메일로 로그인</span></div>
       <form id="quick-login-form" class="quick-login-form">
-        <label>아이디 또는 이메일<input name="email" type="text" required placeholder="ID or email"></label>
+        <label>아이디 또는 이메일<input name="identifier" type="text" required placeholder="ID or email"></label>
         <label>비밀번호<input name="password" type="password" required minlength="6"></label>
         <button class="button" type="submit">로그인</button>
       </form>
-      <div class="login-divider"><span>회원가입</span></div>
-      <form id="quick-register-form" class="quick-login-form">
-        <label>이름<input name="full_name" type="text" required placeholder="이름"></label>
+      <p class="login-help">계정이 없으신가요? <button id="open-register-from-login" class="link-button" type="button">회원가입</button></p>
+    </dialog>
+
+    <dialog id="register-dialog" aria-labelledby="register-title">
+      <div class="dialog-heading">
+        <h2 id="register-title">회원가입</h2>
+        <button class="icon-button" data-close-dialog aria-label="닫기">×</button>
+      </div>
+      <div class="social-login-list">
+        <button class="social-login naver" data-social-login="naver" type="button">네이버로 3초 가입</button>
+        <button class="social-login kakao" data-social-login="kakao" type="button">카카오로 3초 가입</button>
+        <button class="social-login google" data-social-login="google" type="button">구글로 3초 가입</button>
+      </div>
+      <div class="login-divider"><span>또는 이메일로 가입</span></div>
+      <form id="quick-register-form" class="quick-login-form" novalidate>
+        <label>아이디
+          <div class="field-with-button">
+            <input name="username" type="text" required minlength="4" maxlength="20" placeholder="영문 소문자·숫자 4~20자" autocomplete="username">
+            <button class="button button-secondary" id="check-username-button" type="button">중복 확인</button>
+          </div>
+          <span class="field-hint" id="username-hint">영문 소문자와 숫자 조합 4~20자로 입력해 주세요.</span>
+        </label>
+        <label>비밀번호
+          <input name="password" type="password" required minlength="8" maxlength="16" placeholder="8~16자, 2가지 이상 조합" autocomplete="new-password">
+          <span class="password-strength" id="password-strength"></span>
+          <span class="field-hint" id="password-hint">영문·숫자·특수문자 중 2가지 이상을 조합해 8~16자로 입력해 주세요.</span>
+        </label>
+        <label>비밀번호 확인
+          <input name="password_confirm" type="password" required placeholder="비밀번호를 다시 입력" autocomplete="new-password">
+          <span class="field-hint" id="password-confirm-hint"></span>
+        </label>
+        <label>닉네임
+          <input name="full_name" type="text" required maxlength="20" placeholder="특수문자 제외, 2~10자">
+          <span class="field-hint" id="nickname-hint">한글·영문·숫자만 사용해 2~10자로 입력해 주세요.</span>
+        </label>
+        <label>이메일
+          <input name="email" type="email" required placeholder="you@example.com" autocomplete="email">
+          <span class="field-hint" id="email-hint"></span>
+        </label>
+        <label>휴대폰 번호
+          <input name="phone" type="tel" required inputmode="numeric" placeholder="01012345678 (숫자만)" autocomplete="tel">
+          <span class="field-hint" id="phone-hint">'-' 없이 숫자만 입력해 주세요.</span>
+        </label>
         <label>생년월일<input name="birth_date" type="date" required></label>
-        <label>연락처<input name="phone" type="tel" required placeholder="010-0000-0000"></label>
         <label>트위터 핸들<input name="twitter_handle" type="text" placeholder="@handle"></label>
-        <label>아이디 또는 이메일<input name="email" type="text" required placeholder="ID or email"></label>
-        <label>비밀번호<input name="password" type="password" required minlength="6" placeholder="6자 이상"></label>
         <label>우편번호<input name="postal_code" inputmode="numeric" required placeholder="우편번호"></label>
         <label>기본 배송지<input name="address" type="text" required placeholder="도로명 주소"></label>
         <label>상세 주소<input name="address_detail" type="text" required placeholder="동·호수 등 상세 주소"></label>
         <label>환불계좌<input name="account" type="text" required placeholder="은행명·계좌번호·예금주"></label>
-        <label class="consent-field"><input name="privacy_consent" type="checkbox" required> 개인정보 수집·이용 및 배송 목적 정보 제공에 동의합니다.</label>
-        <button class="button button-secondary" type="submit">회원가입</button>
+        <fieldset class="consent-fieldset">
+          <label class="consent-field consent-all"><input id="consent-all" type="checkbox"> 전체 동의</label>
+          <label class="consent-field"><input name="privacy_consent" type="checkbox" required class="consent-required"> (필수) 서비스 이용약관 및 개인정보 수집·이용에 동의합니다.</label>
+          <label class="consent-field"><input name="marketing_consent" type="checkbox" class="consent-optional"> (선택) 마케팅 정보 수신에 동의합니다.</label>
+        </fieldset>
+        <button class="button" type="submit">회원가입</button>
       </form>
-      <p class="login-help">소셜 로그인은 OAuth 제공자 설정 후 연결됩니다.</p>
     </dialog>
 
     <dialog id="product-detail-dialog" aria-labelledby="product-detail-title">

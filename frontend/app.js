@@ -607,7 +607,8 @@ document.addEventListener("click", (event) => {
     if (product) openProductDetail(product);
   }
   if (event.target.closest("[data-social-login]")) {
-    toast("소셜 로그인은 OAuth 제공자 설정 후 사용할 수 있습니다.");
+    const provider = event.target.closest("[data-social-login]").dataset.socialLogin;
+    window.location.href = `${API_BASE_URL}/api/v1/auth/oauth/${provider}`;
   }
   if (event.target.closest("[data-close-dialog]")) {
     const dialog = event.target.closest("dialog");
@@ -646,6 +647,11 @@ byId("login-button").addEventListener("click", () => {
     return;
   }
   byId("login-dialog").showModal();
+});
+byId("register-button").addEventListener("click", () => byId("register-dialog").showModal());
+byId("open-register-from-login").addEventListener("click", () => {
+  byId("login-dialog").close();
+  byId("register-dialog").showModal();
 });
 byId("cart-button").addEventListener("click", () => {
   if (!requireLogin()) return;
@@ -859,18 +865,22 @@ async function submitQuickLogin(event) {
 }
 async function submitQuickRegister(event) {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.currentTarget));
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form));
   const account = data.account;
   delete data.account;
+  const errors = validateRegisterForm(form, data);
+  if (errors.length) return toast(errors[0]);
+  delete data.password_confirm;
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...data, role: "CUSTOMER" }) });
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...data, privacy_consent: Boolean(data.privacy_consent), marketing_consent: Boolean(data.marketing_consent), role: "CUSTOMER" }) });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "회원가입에 실패했습니다.");
+    if (!response.ok) throw new Error(REGISTER_ERROR_MESSAGES[result.error] || result.error || "회원가입에 실패했습니다.");
     activateUser(result.user, result.token);
     const accountResponse = await fetch(`${API_BASE_URL}/api/v1/account`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ account }) });
     if (!accountResponse.ok) throw new Error("환불계좌 저장에 실패했습니다.");
-    byId("login-dialog").close();
-    event.currentTarget.reset();
+    byId("register-dialog").close();
+    form.reset();
     toast("회원가입과 환불계좌 등록이 완료되었습니다.");
     loadCart();
     renderActivities();
@@ -878,6 +888,116 @@ async function submitQuickRegister(event) {
     toast(`회원가입 실패: ${error.message}`);
   }
 }
+const REGISTER_ERROR_MESSAGES = {
+  INVALID_USERNAME_FORMAT: "아이디는 영문 소문자와 숫자 조합 4~20자로 입력해 주세요.",
+  WEAK_PASSWORD: "비밀번호는 영문·숫자·특수문자 중 2가지 이상을 조합해 8~16자로 입력해 주세요.",
+  USERNAME_ALREADY_EXISTS: "이미 사용 중인 아이디입니다.",
+  EMAIL_UNAVAILABLE: "이미 사용 중인 이메일입니다.",
+  PHONE_UNAVAILABLE: "이미 사용 중인 휴대폰 번호입니다.",
+  EMAIL_ALREADY_EXISTS: "이미 사용 중인 이메일입니다.",
+  INVALID_REGISTRATION: "입력 값을 다시 확인해 주세요."
+};
+function passwordStrengthScore(password) {
+  if (!password) return 0;
+  const categories = [/[A-Za-z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((pattern) => pattern.test(password)).length;
+  if (password.length < 8 || password.length > 16 || categories < 2) return 1;
+  return categories >= 3 && password.length >= 12 ? 3 : 2;
+}
+function validateRegisterForm(form, data) {
+  const errors = [];
+  const username = String(data.username || "").trim().toLowerCase();
+  if (!/^[a-z0-9]{4,20}$/.test(username)) errors.push("아이디는 영문 소문자와 숫자 조합 4~20자로 입력해 주세요.");
+  else if (form.dataset.usernameChecked !== username) errors.push("아이디 중복 확인을 먼저 진행해 주세요.");
+  if (passwordStrengthScore(data.password) < 2) errors.push("비밀번호는 영문·숫자·특수문자 중 2가지 이상을 조합해 8~16자로 입력해 주세요.");
+  if (data.password !== data.password_confirm) errors.push("비밀번호 확인이 일치하지 않습니다.");
+  if (!/^[가-힣a-zA-Z0-9]{2,10}$/.test(String(data.full_name || ""))) errors.push("닉네임은 한글·영문·숫자만 사용해 2~10자로 입력해 주세요.");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data.email || ""))) errors.push("올바른 이메일 형식을 입력해 주세요.");
+  if (!/^[0-9]{9,11}$/.test(String(data.phone || ""))) errors.push("휴대폰 번호는 숫자만 9~11자리로 입력해 주세요.");
+  if (!data.privacy_consent) errors.push("서비스 이용약관 및 개인정보 수집·이용에 동의해 주세요.");
+  return errors;
+}
+async function checkUsernameAvailability() {
+  const form = byId("quick-register-form");
+  const input = form.elements.username;
+  const hint = byId("username-hint");
+  const username = input.value.trim().toLowerCase();
+  if (!/^[a-z0-9]{4,20}$/.test(username)) {
+    hint.textContent = "아이디는 영문 소문자와 숫자 조합 4~20자로 입력해 주세요.";
+    hint.className = "field-hint field-hint-error";
+    return;
+  }
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/check-username?username=${encodeURIComponent(username)}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "중복 확인에 실패했습니다.");
+    if (result.available) {
+      form.dataset.usernameChecked = username;
+      hint.textContent = "사용할 수 있는 아이디입니다.";
+      hint.className = "field-hint field-hint-ok";
+    } else {
+      delete form.dataset.usernameChecked;
+      hint.textContent = "이미 사용 중인 아이디입니다.";
+      hint.className = "field-hint field-hint-error";
+    }
+  } catch (error) {
+    hint.textContent = error.message;
+    hint.className = "field-hint field-hint-error";
+  }
+}
+function setupRegisterFormValidation() {
+  const form = byId("quick-register-form");
+  if (!form) return;
+  const usernameInput = form.elements.username;
+  usernameInput.addEventListener("input", () => { delete form.dataset.usernameChecked; });
+  byId("check-username-button").addEventListener("click", checkUsernameAvailability);
+  const passwordInput = form.elements.password;
+  const strengthLabels = ["", "약함", "보통", "강함"];
+  passwordInput.addEventListener("input", () => {
+    const score = passwordStrengthScore(passwordInput.value);
+    const node = byId("password-strength");
+    node.textContent = passwordInput.value ? `비밀번호 강도: ${strengthLabels[score] || "약함"}` : "";
+    node.className = `password-strength strength-${score}`;
+  });
+  const confirmInput = form.elements.password_confirm;
+  const updateConfirmHint = () => {
+    byId("password-confirm-hint").textContent = confirmInput.value && confirmInput.value !== passwordInput.value ? "비밀번호가 일치하지 않습니다." : "";
+  };
+  confirmInput.addEventListener("input", updateConfirmHint);
+  passwordInput.addEventListener("input", updateConfirmHint);
+  form.elements.email.addEventListener("input", (event) => {
+    byId("email-hint").textContent = event.target.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(event.target.value) ? "올바른 이메일 형식이 아닙니다." : "";
+  });
+  form.elements.phone.addEventListener("input", (event) => {
+    event.target.value = event.target.value.replace(/[^0-9]/g, "");
+  });
+  form.elements.full_name.addEventListener("input", (event) => {
+    event.target.value = event.target.value.replace(/[^가-힣a-zA-Z0-9]/g, "");
+  });
+  const consentAll = byId("consent-all");
+  const consentChecks = [...form.querySelectorAll(".consent-required, .consent-optional")];
+  consentAll.addEventListener("change", () => consentChecks.forEach((checkbox) => { checkbox.checked = consentAll.checked; }));
+  consentChecks.forEach((checkbox) => checkbox.addEventListener("change", () => {
+    consentAll.checked = consentChecks.every((item) => item.checked);
+  }));
+}
+setupRegisterFormValidation();
+function handleOauthRedirectResult() {
+  const params = new URLSearchParams(window.location.search);
+  const oauthUser = params.get("oauth_user");
+  const oauthRole = params.get("oauth_role");
+  const oauthError = params.get("oauth_error");
+  if (!oauthUser && !oauthError) return;
+  window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+  if (oauthError) return toast("소셜 로그인에 실패했습니다. 다시 시도해 주세요.");
+  activateUser({ id: oauthUser, role: oauthRole || "CUSTOMER" }, `demo-token-${oauthUser}`);
+  byId("login-dialog")?.close();
+  byId("register-dialog")?.close();
+  toast("소셜 로그인이 완료되었습니다.");
+  loadCart();
+  renderActivities();
+}
+handleOauthRedirectResult();
+
 async function loadProfile() {
   if (!isAuthenticated()) return;
   try {

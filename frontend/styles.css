@@ -199,6 +199,19 @@ textarea:focus {
 .quick-login-form label { display: grid; gap: 5px; font-size: 0.78rem; font-weight: 700; }
 .quick-login-form input { min-width: 0; }
 .login-help { margin: 12px 0 0; color: var(--muted); font-size: 0.72rem; text-align: center; }
+.link-button { background: none; border: 0; color: var(--primary-hover); font-weight: 700; cursor: pointer; padding: 0; text-decoration: underline; }
+.field-with-button { display: flex; gap: 6px; }
+.field-with-button input { flex: 1; }
+.field-with-button .button { width: auto; white-space: nowrap; }
+.field-hint { font-weight: 400; color: var(--muted); font-size: 0.7rem; }
+.field-hint-ok { color: #1a9c5c; }
+.field-hint-error { color: var(--danger); }
+.password-strength { font-weight: 700; font-size: 0.7rem; }
+.password-strength.strength-1 { color: var(--danger); }
+.password-strength.strength-2 { color: #b8860b; }
+.password-strength.strength-3 { color: #1a9c5c; }
+.consent-fieldset { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: var(--radius-sm, 6px); padding: 10px; margin-top: 4px; }
+.consent-all { font-weight: 800; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
 
 .product-card { cursor: pointer; }
 .product-detail { display: grid; grid-template-columns: minmax(180px, 0.8fr) 1.2fr; gap: 20px; padding-top: 20px; }

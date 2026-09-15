@@ -14,6 +14,17 @@ alter table users add column if not exists address_detail text;
 alter table users add column if not exists privacy_consented_at timestamptz;
 alter table users add column if not exists deletion_requested_at timestamptz;
 alter table users add column if not exists deleted_at timestamptz;
+-- 회원가입 개편: 아이디(username), 마케팅 수신 동의, 소셜 로그인 연동 컬럼
+alter table users add column if not exists username text;
+create unique index if not exists users_username_unique on users(username) where username is not null;
+alter table users add column if not exists marketing_consent boolean not null default false;
+alter table users add column if not exists oauth_provider text;
+alter table users add column if not exists oauth_id text;
+create unique index if not exists users_oauth_unique on users(oauth_provider, oauth_id) where oauth_provider is not null;
+-- 소셜 로그인 최초 가입 시 비밀번호/전화번호/이름이 없을 수 있으므로 NOT NULL 제약 완화
+alter table users alter column password_hash drop not null;
+alter table users alter column phone drop not null;
+alter table users alter column full_name drop not null;
 create table if not exists products (
   id text primary key, seller_id text not null references users(id), title text not null,
   category text not null, description text not null, tags jsonb not null default '[]', members jsonb not null default '[]',
