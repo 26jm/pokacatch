@@ -22,17 +22,15 @@ SUPABASE_ANON_KEY=your-anon-key
 UPSTAGE_API_KEY=your-upstage-api-key
 UPSTAGE_MODEL=solar-pro2
 PORT=3000
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
 NAVER_CLIENT_ID=
 NAVER_CLIENT_SECRET=
-KAKAO_CLIENT_ID=
-KAKAO_CLIENT_SECRET=
 BACKEND_URL=http://localhost:3000
 FRONTEND_URL=http://localhost:3000
 ```
 
-소셜 로그인(OAuth) 키는 각 제공자 콘솔에서 발급받아 `.env`에 넣습니다. `.env`는 `.gitignore`에 등록되어 있어 GitHub에 올라가지 않습니다. `BACKEND_URL`/`FRONTEND_URL`은 각 제공자 콘솔에 등록한 Redirect URI(`{BACKEND_URL}/api/v1/auth/oauth/:provider/callback`)와 반드시 일치해야 합니다.
+구글·카카오 로그인은 Supabase Auth Dashboard(`Authentication > Providers`)에 Client ID/Secret을 등록하면 프런트의 `supabase.auth.signInWithOAuth()`가 처리합니다(백엔드 설정 불필요). Supabase가 지원하지 않는 네이버만 `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`으로 백엔드가 직접 OAuth를 처리하며, 네이버 개발자센터 Redirect URI는 `{BACKEND_URL}/api/v1/auth/oauth/naver/callback`으로 등록해야 합니다. `.env`는 `.gitignore`에 등록되어 있어 GitHub에 올라가지 않습니다.
+
+프런트엔드는 `frontend/supabase-config.js`에서 `SUPABASE_URL`과 공개용 `anon key`를 읽어 Supabase 클라이언트를 만듭니다. Supabase Dashboard의 `Authentication > URL Configuration`에 프런트 접속 주소(Site URL, Redirect URLs)를 등록해야 로그인 후 정상적으로 되돌아옵니다.
 
 Vercel에서는 프로젝트의 `Settings > Environment Variables`에 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `UPSTAGE_API_KEY`, `UPSTAGE_MODEL`을 등록하고 `Production`, `Preview`, `Development` 환경을 필요한 범위로 선택한 뒤 재배포합니다. Supabase와 Upstage 키는 프런트엔드 변수(`NEXT_PUBLIC_` 또는 `VITE_`)로 만들지 않습니다.
 
@@ -67,7 +65,8 @@ Vercel에서는 프로젝트의 `Settings > Environment Variables`에 `SUPABASE_
 
 - `POST /api/v1/auth/register`, `POST /api/v1/auth/login`
 - `GET /api/v1/auth/check-username?username=` (아이디 중복 확인)
-- `GET /api/v1/auth/oauth/:provider` (`google`, `naver`, `kakao` 소셜 로그인 시작), `GET /api/v1/auth/oauth/:provider/callback` (제공자 콜백)
+- `GET /api/v1/auth/oauth/naver` (네이버 소셜 로그인 시작), `GET /api/v1/auth/oauth/naver/callback` (네이버 콜백)
+- `POST /api/v1/auth/oauth/supabase-sync` (`{ access_token }`, Supabase Auth로 로그인한 구글/카카오 세션을 앱 계정과 동기화)
 - `POST /api/v1/twitter/parse` (트위터/X 원문 URL 정규화 및 파싱 어댑터)
 - `POST /api/v1/documents/parse` (`{ image: "data:<mime>;base64,..." }`를 받아 Upstage Document Digitization으로 OCR 후 구조화)
 - `GET /api/v1/search?keyword=&category=&sort_by=popular|price|deadline&page=&limit=`

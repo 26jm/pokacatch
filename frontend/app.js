@@ -1,4 +1,9 @@
-const API_BASE_URL = window.__API_BASE_URL__ || (window.location.protocol === "file:" ? "http://localhost:3000" : "");
+// 정적 서버(예: Live Server)로 프런트만 열었을 때도 백엔드(3000)로 요청이 가도록 폴백
+const API_BASE_URL = window.__API_BASE_URL__ || ((window.location.protocol === "file:" || (["localhost", "127.0.0.1"].includes(window.location.hostname) && window.location.port !== "3000")) ? "http://localhost:3000" : "");
+const SUPABASE_URL = window.__SUPABASE_URL__ || "";
+const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__ || "";
+// 구글·카카오 로그인은 Supabase Auth가 처리(네이버는 Supabase 미지원이라 백엔드 자체 OAuth 사용)
+const supabaseClient = (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 const PAGE_SIZE = 6;
 const ALIAS_MAP = {
   "에스파": ["aespa", "에스파", "애스파", "이스파"],
@@ -608,7 +613,13 @@ document.addEventListener("click", (event) => {
   }
   if (event.target.closest("[data-social-login]")) {
     const provider = event.target.closest("[data-social-login]").dataset.socialLogin;
-    window.location.href = `${API_BASE_URL}/api/v1/auth/oauth/${provider}`;
+    if (provider === "naver") {
+      window.location.href = `${API_BASE_URL}/api/v1/auth/oauth/naver`;
+    } else if (supabaseClient) {
+      supabaseClient.auth.signInWithOAuth({ provider, options: { redirectTo: window.location.origin + window.location.pathname } });
+    } else {
+      toast("Supabase 설정이 필요합니다.");
+    }
   }
   if (event.target.closest("[data-close-dialog]")) {
     const dialog = event.target.closest("dialog");
@@ -997,6 +1008,32 @@ function handleOauthRedirectResult() {
   renderActivities();
 }
 handleOauthRedirectResult();
+
+async function handleSupabaseAuthSession(session) {
+  if (!session?.access_token) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/oauth/supabase-sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access_token: session.access_token }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "소셜 로그인 동기화에 실패했습니다.");
+    activateUser(result.user, result.token);
+    byId("login-dialog")?.close();
+    byId("register-dialog")?.close();
+    toast("소셜 로그인이 완료되었습니다.");
+    loadCart();
+    renderActivities();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    // 앱 자체 세션(localStorage)만 사용하므로 Supabase 로컬 세션은 재동기화되지 않도록 정리
+    supabaseClient.auth.signOut();
+  }
+}
+if (supabaseClient) {
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_IN" && session) handleSupabaseAuthSession(session);
+  });
+  supabaseClient.auth.getSession().then(({ data }) => { if (data.session) handleSupabaseAuthSession(data.session); });
+}
 
 async function loadProfile() {
   if (!isAuthenticated()) return;
