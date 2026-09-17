@@ -14,6 +14,19 @@ npm start
 2. 먼저 `users`에 판매자와 고객을 넣거나 API의 회원가입을 호출합니다. 로그인 또는 회원가입 응답의 JWT를 이후 요청의 `Authorization: Bearer <token>` 헤더로 전달합니다.
 3. 서버는 공개하면 안 되는 `SUPABASE_SERVICE_ROLE_KEY`로 Supabase에 접근합니다. 이 키는 백엔드 환경 변수에만 저장합니다.
 
+### 저장 배송지 기능 적용
+
+이번 배송지 관리 기능은 브라우저 저장소를 사용하지 않고 `user_addresses` 테이블에 저장합니다. 기존 프로젝트의 데이터를 유지하려면 Supabase Dashboard의 SQL Editor에서 최신 `supabase-schema.sql`을 다시 실행하세요. `create table if not exists`, `alter table`, `create index if not exists` 구문으로 작성되어 기존 테이블과 함께 적용할 수 있습니다.
+
+적용 후 백엔드를 재시작하면 다음 API가 활성화됩니다.
+
+- `GET /api/v1/account/addresses`: 현재 로그인 사용자의 배송지 목록
+- `POST /api/v1/account/addresses`: 배송지 추가
+- `PATCH /api/v1/account/addresses/:id/default`: 기본 배송지 변경
+- `DELETE /api/v1/account/addresses/:id`: 기본 배송지가 아닌 배송지 삭제
+
+모든 요청은 앱 JWT의 `Authorization: Bearer <token>` 헤더가 필요합니다. 기본 배송지는 사용자별 1건만 허용되며, 기본 배송지는 API에서 삭제를 거부합니다. 백엔드는 Supabase `service_role`로 접근하므로 `user_id`는 요청 본문이 아니라 JWT에서 결정됩니다.
+
 로컬에서는 `.env.example`을 `.env`로 복사하고 실제 값을 입력합니다.
 
 ```env

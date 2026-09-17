@@ -124,6 +124,20 @@
             <p id="receipt-explanation-status" class="muted" role="status"></p>
           </form>
         </div>
+        <section class="management-section" aria-labelledby="hosting-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">HOSTING</p><h2 id="hosting-title">내가 총대인 공구</h2></div>
+            <span class="muted">입금·배송 상태를 한 곳에서 관리합니다.</span>
+          </div>
+          <div id="hosting-project-list" class="management-card-grid"><p class="muted">공구를 불러오는 중...</p></div>
+          <div id="hosting-detail" class="management-detail" hidden>
+            <div class="dialog-heading"><h3 id="hosting-detail-title">공구 관리</h3><button id="close-hosting-detail" class="icon-button" type="button" aria-label="닫기">×</button></div>
+            <div class="management-tabs"><button class="tab-button is-active" data-hosting-tab="deposits" type="button">입금 관리</button><button class="tab-button" data-hosting-tab="addresses" type="button">주소 변경 요청</button><button class="tab-button" data-hosting-tab="shipments" type="button">운송장 등록</button></div>
+            <div id="hosting-deposits-panel"></div>
+            <div id="hosting-addresses-panel" hidden></div>
+            <form id="hosting-shipment-form" class="quick-login-form" hidden><label>택배사<input name="carrier" required placeholder="CJ대한통운"></label><label>운송장 번호<input name="tracking_number" required></label><button class="button" type="submit">운송장 등록 및 배송 시작</button><p class="muted">주소 변경 요청이 남아 있으면 배송 시작이 차단됩니다.</p></form>
+          </div>
+        </section>
       </section>
 
       <section id="view-mypage" class="view" data-view-panel="mypage" hidden>
@@ -167,6 +181,19 @@
             <p id="profile-status" class="muted" role="status"></p>
           </form>
         </div>
+        <section class="management-section" aria-labelledby="participating-title">
+          <div class="section-heading"><div><p class="eyebrow">PARTICIPATING</p><h2 id="participating-title">현재 참여중인 공구</h2></div><span id="participating-summary" class="muted"></span></div>
+          <div id="participating-list" class="management-card-grid"><p class="muted">참여 공구를 불러오는 중...</p></div>
+        </section>
+        <section class="management-section" aria-labelledby="history-title">
+          <div class="section-heading"><div><p class="eyebrow">HISTORY</p><h2 id="history-title">그동안의 공구 참여 내역</h2></div></div>
+          <div class="segmented-control"><button class="tab-button is-active" data-history-tab="participated" type="button">내가 참여한 공구</button><button class="tab-button" data-history-tab="hosted" type="button">내가 총대였던 공구</button></div>
+          <div id="history-list" class="management-card-grid"></div>
+        </section>
+        <section class="management-section" aria-labelledby="address-title">
+          <div class="section-heading"><div><p class="eyebrow">ADDRESSES</p><h2 id="address-title">기본 배송지 / 저장된 배송지</h2></div><button id="add-address-button" class="button button-secondary" type="button">+ 새 배송지 추가</button></div>
+          <div id="saved-address-list" class="address-card-grid"><p class="muted">저장된 배송지가 없습니다.</p></div>
+        </section>
       </section>
 
       <section id="view-seller" class="view" data-view-panel="seller" hidden>
@@ -266,6 +293,16 @@
       </form>
     </dialog>
 
+    <dialog id="order-detail-dialog" aria-labelledby="order-detail-title">
+      <div class="dialog-heading"><h2 id="order-detail-title">공구 참여 상세</h2><button class="icon-button" data-close-dialog aria-label="닫기">×</button></div>
+      <div id="order-detail-content" class="order-detail-content"></div>
+    </dialog>
+
+    <dialog id="address-dialog" aria-labelledby="address-dialog-title">
+      <div class="dialog-heading"><h2 id="address-dialog-title">배송지 추가</h2><button class="icon-button" data-close-dialog aria-label="닫기">×</button></div>
+      <form id="address-form" class="quick-login-form"><label>배송지명<input name="label" required placeholder="집, 회사"></label><label>수령인<input name="recipient_name" required></label><label>연락처<input name="phone" required inputmode="numeric"></label><div class="field-with-button"><input name="postal_code" required placeholder="우편번호"><button id="address-postcode-button" class="button button-secondary" type="button">주소 검색</button></div><label>주소<input name="address" required></label><label>상세 주소<input name="address_detail"></label><label class="consent-field"><input name="is_default" type="checkbox"><span>기본 배송지로 설정</span></label><button class="button" type="submit">배송지 저장</button></form>
+    </dialog>
+
     <dialog id="login-dialog" aria-labelledby="login-title">
       <div class="dialog-heading">
         <h2 id="login-title">로그인</h2>
@@ -276,6 +313,7 @@
         <button class="social-login kakao" data-social-login="kakao" type="button">카카오로 로그인</button>
         <button class="social-login google" data-social-login="google" type="button">구글로 로그인</button>
       </div>
+      <p class="oauth-notice">네이버 로그인은 현재 테스트용 API만 제공됩니다. 사전에 등록된 테스트 계정만 사용할 수 있습니다.</p>
       <div class="login-divider"><span>또는 이메일로 로그인</span></div>
       <form id="quick-login-form" class="quick-login-form">
         <label>아이디 또는 이메일<input name="identifier" type="text" required placeholder="ID or email"></label>
@@ -321,6 +359,7 @@
         <button class="social-login kakao" data-social-login="kakao" type="button">카카오로 3초 가입</button>
         <button class="social-login google" data-social-login="google" type="button">구글로 3초 가입</button>
       </div>
+      <p class="oauth-notice">네이버 로그인은 현재 테스트용 API만 제공됩니다. 사전에 등록된 테스트 계정만 사용할 수 있습니다.</p>
       <div class="login-divider"><span>또는 이메일로 가입</span></div>
       <form id="quick-register-form" class="quick-login-form" novalidate>
         <label>아이디
@@ -351,16 +390,23 @@
           <input name="phone" type="tel" required inputmode="numeric" placeholder="01012345678 (숫자만)" autocomplete="tel">
           <span class="field-hint" id="phone-hint">'-' 없이 숫자만 입력해 주세요.</span>
         </label>
-        <label>생년월일<input name="birth_date" type="date" required></label>
-        <label>트위터 핸들<input name="twitter_handle" type="text" placeholder="@handle"></label>
-        <label>우편번호<input name="postal_code" inputmode="numeric" required placeholder="우편번호"></label>
-        <label>기본 배송지<input name="address" type="text" required placeholder="도로명 주소"></label>
-        <label>상세 주소<input name="address_detail" type="text" required placeholder="동·호수 등 상세 주소"></label>
-        <label>환불계좌<input name="account" type="text" required placeholder="은행명·계좌번호·예금주"></label>
+        <label>생년월일 <span class="field-required">[필수]</span><input name="birth_date" type="date" required></label>
+        <label>트위터 핸들 <span class="field-optional">[선택]</span><input name="twitter_handle" type="text" placeholder="@handle"></label>
+        <div class="address-field-group">
+          <label>배송지 주소 <span class="field-optional">[선택]</span></label>
+          <div class="field-with-button">
+            <input name="postal_code" inputmode="numeric" placeholder="우편번호" aria-label="우편번호">
+            <button class="button button-secondary" id="search-postcode-button" type="button">우편번호 검색</button>
+          </div>
+          <input name="address" type="text" placeholder="도로명 주소" aria-label="기본 배송지">
+          <input name="address_detail" type="text" placeholder="동·호수 등 상세 주소" aria-label="상세 주소">
+          <span class="field-hint">배송지는 공구 신청 시 입력할 수 있습니다.</span>
+        </div>
+        <label>환불계좌 <span class="field-optional">[선택]</span><input name="account" type="text" placeholder="은행명·계좌번호·예금주"></label>
         <fieldset class="consent-fieldset">
           <label class="consent-field consent-all"><input id="consent-all" type="checkbox"> 전체 동의</label>
-          <label class="consent-field"><input name="privacy_consent" type="checkbox" required class="consent-required"> (필수) 서비스 이용약관 및 개인정보 수집·이용에 동의합니다.</label>
-          <label class="consent-field"><input name="marketing_consent" type="checkbox" class="consent-optional"> (선택) 마케팅 정보 수신에 동의합니다.</label>
+          <label class="consent-field"><input name="privacy_consent" type="checkbox" required class="consent-required"> <span><strong>[필수] 개인정보 수집 및 이용</strong><small>이름, 이메일, 비밀번호, 휴대폰 번호를 회원가입·본인 확인·주문 및 CS에 이용하며, 탈퇴 시까지 보관합니다.</small></span></label>
+          <label class="consent-field"><input name="marketing_consent" type="checkbox" class="consent-optional"> <span><strong>[선택] 이벤트 및 혜택 알림</strong><small>이메일과 휴대폰 번호를 신규 기능·혜택·이벤트 안내에 이용합니다. 언제든 동의를 철회할 수 있습니다.</small></span></label>
         </fieldset>
         <button class="button" type="submit">회원가입</button>
       </form>
@@ -428,6 +474,7 @@
     </template>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+    <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
     <script src="./supabase-config.js"></script>
     <script src="./supabase-config.local.js" onerror="void 0"></script>
     <script src="./app.js"></script>

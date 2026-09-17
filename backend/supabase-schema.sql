@@ -182,6 +182,23 @@ alter table payout_accounts add column if not exists account_iv text;
 alter table payout_accounts add column if not exists account_auth_tag text;
 alter table payout_accounts add column if not exists account_last4 text;
 alter table payout_accounts add column if not exists bank_name text;
+create table if not exists user_addresses (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null references users(id) on delete cascade,
+  label text not null,
+  recipient_name text not null,
+  phone text not null,
+  postal_code text not null,
+  address text not null,
+  address_detail text,
+  is_default boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists user_addresses_one_default_idx
+  on user_addresses(user_id) where is_default = true;
+create index if not exists user_addresses_user_created_idx
+  on user_addresses(user_id, is_default desc, created_at desc);
 create table if not exists activities (
   id uuid primary key default gen_random_uuid(), user_id text not null references users(id) on delete cascade,
   type text not null check (type in ('participation', 'settlement', 'notification', 'dispute')),
@@ -1071,6 +1088,7 @@ alter table member_selections enable row level security;
 alter table reviews enable row level security;
 alter table shipments enable row level security;
 alter table payout_accounts enable row level security;
+alter table user_addresses enable row level security;
 alter table activities enable row level security;
 alter table reports enable row level security;
 alter table receipt_verifications enable row level security;

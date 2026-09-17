@@ -37,7 +37,8 @@ const products = [
 ];
 const SESSION_KEY = "poka-catch-session";
 const LANGUAGE_KEY = "poka-catch-language";
-const state = { cart: [], role: "CUSTOMER", language: localStorage.getItem(LANGUAGE_KEY) || "ko", userId: null, token: null, pendingProject: null, checkoutKey: null, disputeOrderId: null, passwordResetToken: null };
+const state = { cart: [], role: "CUSTOMER", language: localStorage.getItem(LANGUAGE_KEY) || "ko", userId: null, token: null, pendingProject: null, checkoutKey: null, disputeOrderId: null, passwordResetToken: null, oauthProfilePending: false };
+const managementState = { orders: [], hostingOrders: [], projects: [], selectedProjectId: null, historyTab: "participated", hostingTab: "deposits" };
 const catalog = { page: 1, items: [], total: 0, demoTotal: 0, loading: false, done: false };
 const money = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const byId = (id) => document.getElementById(id);
@@ -643,9 +644,10 @@ function showView(name) {
   document.body.dataset.view = name;
   history.replaceState(null, "", `#${name}`);
   byId("primary-nav").classList.remove("is-open");
+  if (name === "workbench") loadHostingManagement();
   if (name === "seller") renderSeller();
   if (name === "admin") renderAdmin();
-  if (name === "mypage") { renderActivities(); loadProfile(); }
+  if (name === "mypage") { renderActivities(); loadProfile(); loadManagementOrders(); loadSavedAddresses(); }
 }
 
 function toast(message) {
@@ -1018,6 +1020,158 @@ async function loadCompensations() {
     console.warn("보상금 내역 조회 실패:", error);
   }
 }
+async function loadSavedAddresses() {
+  const list = byId("saved-address-list");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/account/addresses`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "배송지 조회 실패");
+    renderSavedAddresses(result.items || []);
+  } catch (error) {
+    list.replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: `배송지를 불러오지 못했습니다: ${error.message}` }));
+  }
+}
+function orderProjectStatus(order) { return order.project?.status || order.projects?.status || order.status; }
+function orderStage(order) {
+  const payment = Array.isArray(order.payments) ? order.payments[0] : order.payments;
+  const status = orderProjectStatus(order);
+  if (status === "SHIPPED" || order.status === "SHIPPED") return 3;
+  if (["SETTLED", "COMPLETED", "DONE"].includes(status) || ["RECEIVED", "SETTLED"].includes(order.status)) return 4;
+  if (["PACKING", "배송준비"].includes(status)) return 2;
+  if (["PAYMENT_CONFIRMED", "ALLOCATED"].includes(order.status) || ["HELD", "RELEASED"].includes(payment?.status)) return 1;
+  return 0;
+}
+function orderStageName(order) { return ["입금 확인중", "구매 완료", "배송 준비중", "배송 중", "거래 완료"][orderStage(order)]; }
+function renderProgressSteps(order) {
+  const current = orderStage(order);
+  const labels = ["입금 확인중", "구매 완료", "배송 준비중", "배송 중", "거래 완료"];
+  return `<div class="progress-steps">${labels.map((label, index) => `<span class="progress-step${index <= current ? " is-active" : ""}" title="${label}"></span>`).join("")}</div><div class="progress-labels">${labels.map((label, index) => `<span class="${index <= current ? "is-active" : ""}">${label}</span>`).join("")}</div>`;
+}
+function orderTitle(order) { return order.order_items?.[0]?.title || order.project_title || "공구 참여"; }
+function renderParticipatingOrders() {
+  const list = byId("participating-list");
+  const active = managementState.orders.filter((order) => !["EXPIRED", "CANCELLED", "SETTLED", "REFUNDED"].includes(order.status));
+  byId("participating-summary").textContent = `${active.length}건 진행 중`;
+  list.replaceChildren(...(active.length ? active.map((order) => {
+    const card = document.createElement("article");
+    card.className = "management-card";
+    card.dataset.orderDetail = order.id;
+    card.innerHTML = `<h3>${orderTitle(order)}</h3><p>${money.format(order.total)} · ${orderStageName(order)}</p>${renderProgressSteps(order)}<p class="muted">${new Date(order.created_at).toLocaleDateString("ko-KR")} 신청</p>`;
+    return card;
+  }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "현재 참여 중인 공구가 없습니다." })]));
+}
+function renderHistoryOrders() {
+  const list = byId("history-list");
+  const isHosted = managementState.historyTab === "hosted";
+  const items = isHosted ? managementState.projects.filter((project) => ["SETTLED", "CANCELLED", "COMPLETED"].includes(project.status)) : managementState.orders.filter((order) => ["SETTLED", "CANCELLED", "REFUNDED", "EXPIRED"].includes(order.status));
+  list.replaceChildren(...(items.length ? items.map((item) => {
+    const card = document.createElement("article");
+    card.className = "management-card";
+    const title = isHosted ? item.title : orderTitle(item);
+    const completedAt = item.updated_at || item.created_at;
+    card.innerHTML = `<h3>${title}</h3><p><span class="status">${isHosted ? "총대" : "참여자"}</span> · ${item.status}</p><p class="muted">${new Date(completedAt).toLocaleDateString("ko-KR")}</p>${!isHosted && item.status === "SETTLED" ? `<button class="button button-secondary" data-review-order="${item.id}" type="button">총대 매너 평가</button>` : ""}`;
+    return card;
+  }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "해당 내역이 없습니다." })]));
+}
+function openOrderDetail(orderId) {
+  const order = managementState.orders.find((item) => item.id === orderId);
+  if (!order) return;
+  const shipping = order.shipping_info || {};
+  const payment = Array.isArray(order.payments) ? order.payments[0] : order.payments;
+  const shipment = order.shipment || {};
+  const addressChange = shipping.address_change_status;
+  const canChange = !["SHIPPED", "SETTLED", "배송중", "완료"].includes(orderProjectStatus(order)) && orderStage(order) < 3;
+  const content = byId("order-detail-content");
+  content.innerHTML = `<h3>${orderTitle(order)}</h3>${renderProgressSteps(order)}<dl class="detail-summary-grid"><div><dt>주문 옵션</dt><dd>${order.order_items?.[0]?.member_name || "기본 옵션"}</dd></div><div><dt>총 입금액</dt><dd>${money.format(order.total)}</dd></div><div><dt>입금 상태</dt><dd>${payment?.status || order.status}</dd></div><div><dt>환불 상태</dt><dd>${order.status === "REFUNDED" ? `환불 완료 ${money.format(payment?.amount || order.total)}` : "환불 없음"}</dd></div></dl><section><h4>배송지</h4><p>${shipping.recipient_name || "받는 분 미입력"} · ${shipping.phone || "연락처 미입력"}</p><p>${shipping.postal_code || ""} ${shipping.address || "주소 미입력"} ${shipping.address_detail || ""}</p><p class="muted">${addressChange ? `주소 변경 ${addressChange}` : "주소 변경 요청 없음"}</p><button class="button button-secondary" data-request-address="${order.id}" type="button" ${canChange ? "" : "disabled"}>배송지 변경 신청</button>${canChange ? "" : "<span class=\"field-hint\">배송이 시작되어 주소 변경이 불가합니다.</span>"}</section><section><h4>배송 추적</h4><p>${shipment.tracking_number || "운송장 등록 전"}</p>${shipment.tracking_number ? `<a class="tracking-link" href="https://tracker.delivery/#/${shipment.carrier || ""}/${shipment.tracking_number}" target="_blank" rel="noopener">배송 추적</a>` : ""}</section><section><h4>비밀 Q&A</h4><p class="muted">주문 관련 문의는 분쟁 신고 또는 고객센터를 이용해 주세요.</p></section>`;
+  byId("order-detail-dialog").showModal();
+}
+async function loadManagementOrders() {
+  if (!isAuthenticated()) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/customer/purchase-history`, { headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "공구 내역 조회 실패");
+    managementState.orders = result.items || [];
+    renderParticipatingOrders();
+    renderHistoryOrders();
+  } catch (error) { byId("participating-list").replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: error.message })); }
+}
+function renderSavedAddresses(addresses) {
+  const list = byId("saved-address-list");
+  list.replaceChildren(...(addresses.length ? addresses.map((address) => {
+    const card = document.createElement("article"); card.className = "address-card";
+    card.innerHTML = `<h3>${address.label} ${address.is_default ? '<span class="status badge-success">기본</span>' : ""}</h3><p>${address.recipient_name} · ${address.phone}</p><p>${address.postal_code} ${address.address} ${address.address_detail || ""}</p><div class="address-actions"><button class="button button-secondary" data-default-address="${address.id}" type="button" ${address.is_default ? "disabled" : ""}>기본 배송지로 설정</button><button class="button button-danger" data-delete-address="${address.id}" type="button" ${address.is_default ? "disabled" : ""}>삭제</button></div>`;
+    return card;
+  }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "저장된 배송지가 없습니다. 새 배송지를 추가해 주세요." })]));
+}
+async function setDefaultAddress(addressId) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/account/addresses/${addressId}/default`, { method: "PATCH", headers: identityHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "기본 배송지 설정 실패");
+    await loadSavedAddresses();
+    toast("기본 배송지를 변경했습니다.");
+  } catch (error) { toast(error.message); }
+}
+async function deleteSavedAddress(addressId) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/account/addresses/${addressId}`, { method: "DELETE", headers: identityHeaders() });
+    if (!response.ok) { const result = await response.json(); throw new Error(result.error || "배송지 삭제 실패"); }
+    await loadSavedAddresses();
+    toast("배송지를 삭제했습니다.");
+  } catch (error) { toast(error.message); }
+}
+function maskPhone(phone) { const value = String(phone || ""); return value.length >= 8 ? `${value.slice(0, 3)}-****-${value.slice(-4)}` : "연락처 보호됨"; }
+function renderHostingProjects() {
+  const list = byId("hosting-project-list");
+  list.replaceChildren(...(managementState.projects.length ? managementState.projects.map((project) => {
+    const orders = managementState.hostingOrders.filter((order) => order.project_id === project.id);
+    const pendingDeposits = orders.filter((order) => (Array.isArray(order.payments) ? order.payments[0]?.status : order.payments?.status) === "PENDING").length;
+    const pendingAddresses = orders.filter((order) => order.shipping_info?.address_change_status === "요청중").length;
+    const card = document.createElement("article"); card.className = "management-card"; card.dataset.hostingProject = project.id;
+    card.innerHTML = `<h3>${project.title}</h3><p>${project.status} · 참여자 ${orders.length}명</p><div class="hosting-metrics"><span class="status badge-danger">미승인 입금 ${pendingDeposits}</span><span class="status badge-warning">주소 변경 ${pendingAddresses}</span></div>`;
+    return card;
+  }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "등록한 공구가 없습니다." })]));
+}
+function renderHostingDetail() {
+  const project = managementState.projects.find((item) => item.id === managementState.selectedProjectId);
+  if (!project) return;
+  const orders = managementState.hostingOrders.filter((order) => order.project_id === project.id);
+  byId("hosting-detail-title").textContent = `${project.title} 관리`;
+  const pending = orders.filter((order) => (Array.isArray(order.payments) ? order.payments[0]?.status : order.payments?.status) === "PENDING");
+  byId("hosting-deposits-panel").innerHTML = `<div class="management-table-wrap"><table class="management-table"><thead><tr><th>참여자</th><th>입금액</th><th>연락처</th><th>주소</th><th>상태</th><th>액션</th></tr></thead><tbody>${(pending.length ? pending : orders).map((order) => { const shipping = order.shipping_info || {}; const payment = Array.isArray(order.payments) ? order.payments[0] : order.payments; return `<tr><td>${order.customer_id}</td><td>${money.format(order.total)}</td><td>${maskPhone(shipping.phone)}</td><td>배송지 보호됨</td><td>${payment?.status || order.status}</td><td>${payment?.status === "PENDING" ? `<button class="button" data-hosting-payment="${order.id}" type="button">입금 승인</button>` : "확인됨"}</td></tr>`; }).join("")}</tbody></table></div>`;
+  const addressRequests = orders.filter((order) => order.shipping_info?.address_change_status === "요청중");
+  byId("hosting-addresses-panel").innerHTML = addressRequests.length ? addressRequests.map((order) => `<article class="report-item"><div><strong>${order.customer_id}</strong><p>기존: ${order.shipping_info.address || "미입력"}</p><p>신규: ${order.shipping_info.new_address || "요청 주소 미입력"}</p></div><button class="button button-secondary" data-address-approve="${order.id}" type="button">승인</button></article>`).join("") : '<p class="muted">처리할 주소 변경 요청이 없습니다.</p>';
+  byId("hosting-shipment-form").hidden = false;
+}
+async function loadHostingManagement() {
+  if (!isAuthenticated() || !["SELLER", "ADMIN"].includes(state.role)) return;
+  try {
+    const [projectsResponse, ordersResponse] = await Promise.all([
+      fetch(`${API_BASE_URL}/api/v1/seller/projects`, { headers: identityHeaders() }),
+      fetch(`${API_BASE_URL}/api/v1/seller/orders`, { headers: identityHeaders() })
+    ]);
+    const projectsResult = await projectsResponse.json(); const ordersResult = await ordersResponse.json();
+    if (!projectsResponse.ok) throw new Error(projectsResult.error || "총대 공구 조회 실패");
+    if (!ordersResponse.ok) throw new Error(ordersResult.error || "참여자 조회 실패");
+    managementState.projects = projectsResult.items || [];
+    managementState.hostingOrders = ordersResult.items || [];
+    renderHostingProjects();
+  } catch (error) { byId("hosting-project-list").replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: error.message })); }
+}
+async function submitHostingShipment(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const input = Object.fromEntries(new FormData(form));
+  if (!managementState.selectedProjectId) return toast("공구를 먼저 선택해 주세요.");
+  const hasPendingAddress = managementState.hostingOrders.some((order) => order.project_id === managementState.selectedProjectId && order.shipping_info?.address_change_status === "요청중");
+  if (hasPendingAddress) return toast("미처리된 주소 변경 요청이 있어 배송 시작을 차단했습니다.");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/seller/shipments`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ ...input, project_id: managementState.selectedProjectId }) });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || "운송장 등록 실패");
+    toast("운송장을 등록하고 배송을 시작했습니다."); loadHostingManagement();
+  } catch (error) { toast(error.message); }
+}
 async function renderActivities() {
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/activity`, { headers: identityHeaders() });
@@ -1156,6 +1310,8 @@ async function submitQuickRegister(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = Object.fromEntries(new FormData(form));
+  data.postal_code ||= "배송지 미등록";
+  data.address ||= "배송지 미등록";
   const account = data.account;
   delete data.account;
   const errors = validateRegisterForm(form, data);
@@ -1166,8 +1322,10 @@ async function submitQuickRegister(event) {
     const result = await response.json();
     if (!response.ok) throw new Error(REGISTER_ERROR_MESSAGES[result.error] || result.error || "회원가입에 실패했습니다.");
     activateUser(result.user, result.token);
-    const accountResponse = await fetch(`${API_BASE_URL}/api/v1/account`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ account }) });
-    if (!accountResponse.ok) throw new Error("환불계좌 저장에 실패했습니다.");
+    if (account) {
+      const accountResponse = await fetch(`${API_BASE_URL}/api/v1/account`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ account }) });
+      if (!accountResponse.ok) throw new Error("환불계좌 저장에 실패했습니다.");
+    }
     byId("register-dialog").close();
     form.reset();
     toast("회원가입과 환불계좌 등록이 완료되었습니다.");
@@ -1237,7 +1395,19 @@ function setupRegisterFormValidation() {
   const form = byId("quick-register-form");
   if (!form) return;
   const usernameInput = form.elements.username;
-  usernameInput.addEventListener("input", () => { delete form.dataset.usernameChecked; });
+  usernameInput.addEventListener("input", () => {
+    delete form.dataset.usernameChecked;
+    const username = usernameInput.value.trim().toLowerCase();
+    const hint = byId("username-hint");
+    if (!username) hint.textContent = "영문 소문자와 숫자 조합 4~20자로 입력해 주세요.";
+    else if (!/^[a-z0-9]{4,20}$/.test(username)) {
+      hint.textContent = "영문 소문자와 숫자 조합 4~20자로 입력해 주세요.";
+      hint.className = "field-hint field-hint-error";
+    } else {
+      hint.textContent = "형식이 올바릅니다. 중복 확인을 진행해 주세요.";
+      hint.className = "field-hint";
+    }
+  });
   byId("check-username-button").addEventListener("click", checkUsernameAvailability);
   const passwordInput = form.elements.password;
   const strengthLabels = ["", "약함", "보통", "강함"];
@@ -1254,10 +1424,16 @@ function setupRegisterFormValidation() {
   confirmInput.addEventListener("input", updateConfirmHint);
   passwordInput.addEventListener("input", updateConfirmHint);
   form.elements.email.addEventListener("input", (event) => {
-    byId("email-hint").textContent = event.target.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(event.target.value) ? "올바른 이메일 형식이 아닙니다." : "";
+    const hint = byId("email-hint");
+    const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(event.target.value);
+    hint.textContent = !event.target.value ? "이메일을 입력해 주세요." : valid ? "사용 가능한 이메일 형식입니다." : "올바른 이메일 형식이 아닙니다.";
+    hint.className = `field-hint${event.target.value && valid ? " field-hint-ok" : event.target.value ? " field-hint-error" : ""}`;
   });
   form.elements.phone.addEventListener("input", (event) => {
     event.target.value = event.target.value.replace(/[^0-9]/g, "");
+    const hint = byId("phone-hint");
+    hint.textContent = /^[0-9]{9,11}$/.test(event.target.value) ? "입력 형식이 올바릅니다." : "'-' 없이 숫자 9~11자리를 입력해 주세요.";
+    hint.className = `field-hint${/^[0-9]{9,11}$/.test(event.target.value) ? " field-hint-ok" : " field-hint-error"}`;
   });
   form.elements.full_name.addEventListener("input", (event) => {
     event.target.value = event.target.value.replace(/[^가-힣a-zA-Z0-9]/g, "");
@@ -1270,6 +1446,15 @@ function setupRegisterFormValidation() {
   }));
 }
 setupRegisterFormValidation();
+byId("search-postcode-button")?.addEventListener("click", () => {
+  if (!window.daum?.Postcode) return toast("우편번호 검색 서비스를 불러오지 못했습니다. 주소를 직접 입력해 주세요.");
+  new window.daum.Postcode({ oncomplete: (data) => {
+    const form = byId("quick-register-form");
+    form.elements.postal_code.value = data.zonecode;
+    form.elements.address.value = data.roadAddress || data.jibunAddress;
+    form.elements.address_detail.focus();
+  } }).open();
+});
 function handleOauthRedirectResult() {
   const params = new URLSearchParams(window.location.search);
   const oauthToken = params.get("oauth_token");
@@ -1284,6 +1469,7 @@ function handleOauthRedirectResult() {
     return toast("소셜 로그인 토큰이 올바르지 않습니다. 다시 시도해 주세요.");
   }
   activateUser({ id: payload.sub, role: payload.role }, oauthToken);
+  state.oauthProfilePending = true;
   byId("login-dialog")?.close();
   byId("register-dialog")?.close();
   toast("소셜 로그인이 완료되었습니다.");
@@ -1300,6 +1486,7 @@ async function handleSupabaseAuthSession(session) {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "소셜 로그인 동기화에 실패했습니다.");
     activateUser(result.user, result.token);
+    state.oauthProfilePending = true;
     byId("login-dialog")?.close();
     byId("register-dialog")?.close();
     toast("소셜 로그인이 완료되었습니다.");
@@ -1327,7 +1514,13 @@ async function loadProfile() {
     if (!response.ok) throw new Error(result.error || "회원정보를 불러오지 못했습니다.");
     const form = byId("profile-form");
     Object.entries(result.user).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value || ""; });
-    setProfileLocked(true);
+    const missingOauthProfile = state.oauthProfilePending && ["phone", "birth_date"].some((key) => !result.user[key]);
+    if (missingOauthProfile) {
+      byId("profile-form").elements.current_password.required = false;
+      setProfileLocked(false);
+      showView("mypage");
+      toast("외부 로그인 계정입니다. 휴대폰 번호와 생년월일을 추가로 입력해 주세요.");
+    } else setProfileLocked(true);
   } catch (error) {
     byId("profile-status").textContent = error.message;
   }
@@ -1342,13 +1535,21 @@ async function updateProfile(event) {
   const form = event.currentTarget;
   const data = Object.fromEntries(new FormData(form));
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/account/profile`, { method: "PATCH", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify(data) });
+    const profilePath = state.oauthProfilePending ? "/api/v1/account/oauth-profile" : "/api/v1/account/profile";
+    const response = await fetch(`${API_BASE_URL}${profilePath}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify(data) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "회원정보 수정에 실패했습니다.");
     form.elements.current_password.value = "";
     form.elements.new_password.value = "";
-    setProfileLocked(true);
+    const missingOauthProfile = state.oauthProfilePending && ["phone", "birth_date"].some((key) => !result.user[key]);
+    if (missingOauthProfile) {
+      byId("profile-form").elements.current_password.required = false;
+      setProfileLocked(false);
+      showView("mypage");
+      toast("외부 로그인 계정입니다. 휴대폰 번호와 생년월일을 추가로 입력해 주세요.");
+    } else setProfileLocked(true);
     byId("profile-status").textContent = "회원정보가 저장되었습니다.";
+    state.oauthProfilePending = false;
     toast("회원정보를 수정했습니다.");
   } catch (error) {
     byId("profile-status").textContent = error.message;
@@ -1541,6 +1742,21 @@ document.querySelector("#profile-form input[name='current_password']")?.addEvent
 document.querySelector("#open-project-form")?.addEventListener("submit", openProject);
 document.querySelector("#document-form")?.addEventListener("submit", processDocument);
 document.querySelector("#receipt-explanation-form")?.addEventListener("submit", submitReceiptExplanation);
+document.querySelector("#hosting-shipment-form")?.addEventListener("submit", submitHostingShipment);
+document.querySelector("#address-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = Object.fromEntries(new FormData(event.currentTarget));
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/account/addresses`, { method: "POST", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ ...input, is_default: input.is_default === "on" }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "배송지 저장 실패");
+    event.currentTarget.reset(); byId("address-dialog").close(); await loadSavedAddresses(); toast("배송지를 Supabase에 저장했습니다.");
+  } catch (error) { toast(error.message); }
+});
+byId("address-postcode-button")?.addEventListener("click", () => {
+  if (!window.daum?.Postcode) return toast("주소 검색 서비스를 불러오지 못했습니다.");
+  new window.daum.Postcode({ oncomplete: (data) => { const form = byId("address-form"); form.elements.postal_code.value = data.zonecode; form.elements.address.value = data.roadAddress || data.jibunAddress; form.elements.address_detail.focus(); } }).open();
+});
 document.addEventListener("submit", submitSellerShipment);
 document.addEventListener("submit", submitSellerAllocation);
 document.addEventListener("submit", forfeitProjectDeposit);
@@ -1583,7 +1799,43 @@ document.addEventListener("click", (event) => {
   if (receiptReviewButton) reviewReceiptVerification(receiptReviewButton);
   const reviewButton = event.target.closest("[data-review-order]");
   if (reviewButton) openReviewDialog(reviewButton);
+  const orderCard = event.target.closest("[data-order-detail]");
+  if (orderCard) openOrderDetail(orderCard.dataset.orderDetail);
+  const historyTab = event.target.closest("[data-history-tab]");
+  if (historyTab) { managementState.historyTab = historyTab.dataset.historyTab; document.querySelectorAll("[data-history-tab]").forEach((button) => button.classList.toggle("is-active", button === historyTab)); renderHistoryOrders(); }
+  const hostingCard = event.target.closest("[data-hosting-project]");
+  if (hostingCard) { managementState.selectedProjectId = hostingCard.dataset.hostingProject; byId("hosting-detail").hidden = false; renderHostingDetail(); }
+  const hostingTab = event.target.closest("[data-hosting-tab]");
+  if (hostingTab) { managementState.hostingTab = hostingTab.dataset.hostingTab; document.querySelectorAll("[data-hosting-tab]").forEach((button) => button.classList.toggle("is-active", button === hostingTab)); byId("hosting-deposits-panel").hidden = managementState.hostingTab !== "deposits"; byId("hosting-addresses-panel").hidden = managementState.hostingTab !== "addresses"; byId("hosting-shipment-form").hidden = managementState.hostingTab !== "shipments"; }
+  const approvePayment = event.target.closest("[data-hosting-payment]");
+  if (approvePayment) approveHostingPayment(approvePayment.dataset.hostingPayment);
+  const approveAddress = event.target.closest("[data-address-approve]");
+  if (approveAddress) approveHostingAddress(approveAddress.dataset.addressApprove);
+  const defaultAddress = event.target.closest("[data-default-address]");
+  if (defaultAddress) setDefaultAddress(defaultAddress.dataset.defaultAddress);
+  const deleteAddress = event.target.closest("[data-delete-address]");
+  if (deleteAddress) deleteSavedAddress(deleteAddress.dataset.deleteAddress);
+  if (event.target.closest("#add-address-button")) byId("address-dialog").showModal();
+  if (event.target.closest("#close-hosting-detail")) byId("hosting-detail").hidden = true;
+  const addressRequest = event.target.closest("[data-request-address]");
+  if (addressRequest) requestOrderAddress(addressRequest.dataset.requestAddress);
 });
+async function requestOrderAddress(orderId) {
+  if (!window.daum?.Postcode) return toast("주소 검색 서비스를 불러오지 못했습니다.");
+  new window.daum.Postcode({ oncomplete: async (data) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/customer/orders/${orderId}/address-request`, { method: "PATCH", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ postal_code: data.zonecode, address: data.roadAddress || data.jibunAddress, address_detail: "" }) });
+      const result = await response.json(); if (!response.ok) throw new Error(result.error || "주소 변경 신청 실패");
+      toast("배송지 변경 신청을 접수했습니다."); byId("order-detail-dialog").close(); loadManagementOrders();
+    } catch (error) { toast(error.message); }
+  } }).open();
+}
+async function approveHostingPayment(orderId) {
+  try { const response = await fetch(`${API_BASE_URL}/api/v1/seller/orders/${orderId}/approve-deposit`, { method: "POST", headers: identityHeaders() }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "입금 승인 실패"); toast("입금을 승인했습니다."); loadHostingManagement(); } catch (error) { toast(error.message); }
+}
+async function approveHostingAddress(orderId) {
+  try { const response = await fetch(`${API_BASE_URL}/api/v1/seller/orders/${orderId}/address-approve`, { method: "PATCH", headers: { "Content-Type": "application/json", ...identityHeaders() }, body: JSON.stringify({ approve: true }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "주소 승인 실패"); toast("주소 변경을 승인했습니다."); loadHostingManagement(); } catch (error) { toast(error.message); }
+}
 async function loadCart() {
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/cart`, { headers: identityHeaders() });
